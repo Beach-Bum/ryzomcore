@@ -222,6 +222,9 @@ const char *s_PostSharpen =
 	"  mxRGB += mxRGB2;\n"
 	"  vec3 rcpMRGB = 1.0 / max(mxRGB, vec3(1e-4));\n"
 	"  vec3 ampRGB = clamp(min(mnRGB, 2.0 - mxRGB) * rcpMRGB, 0.0, 1.0);\n"
+	// Shaping of the sharpen amount: sqrt as in FidelityFX CAS (CasFilter, CAS_GO_SLOWER: ampR=sqrt(ampR)).
+	// amp is the headroom to the signal limits (1 in flat regions, 0 on saturated edges) so CAS sharpens
+	// where it will not clip/ring; rsqrt would map amp 0..1 to 1..inf and make 1+4*w cross zero.
 	"  ampRGB = sqrt(ampRGB);\n"
 	"  float peak = -1.0 / mix(8.0, 5.0, clamp(gradeParams.w, 0.0, 1.0));\n"
 	"  vec3 wRGB = ampRGB * peak;\n"
