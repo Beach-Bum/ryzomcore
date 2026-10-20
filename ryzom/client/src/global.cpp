@@ -42,6 +42,7 @@ NL3D::UTextContext			*TextContext = nullptr;	// Context for all the text in the 
 
 // Effects
 NL3D::CFXAA					*FXAA = nullptr;
+NL3D::CPostStack				*PostStack = nullptr;
 
 // Main 3D Objects
 NL3D::UScene						*Scene = nullptr;

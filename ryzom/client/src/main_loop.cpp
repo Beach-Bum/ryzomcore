@@ -50,6 +50,7 @@
 #include "nel/3d/render_target_manager.h"
 #include "nel/3d/driver_user.h"
 #include "nel/3d/fxaa.h"
+#include "nel/3d/post_stack.h"
 // game share
 #include "game_share/brick_types.h"
 #include "game_share/light_cycle.h"
@@ -1669,11 +1670,19 @@ bool mainLoop()
 
 		uint i = 0;
 		CTextureUser *effectRenderTarget = nullptr;
+		if (PostStack)
+		{
+			// Engine phase of E1-3: drive the GL3 post stack from the existing cfg vars
+			// (FXAA -> AntiAliasing 2, Bloom -> bloom on at intensity 0.35). The client phase
+			// replaces this with AmbientOcclusion / AntiAliasing / BloomIntensity / RenderScale.
+			PostStack->setQuality(0, ClientCfg.FXAA ? 2 : 0, ClientCfg.Bloom, 0.35f, 100, 0.3f, 1.0f);
+		}
 		bool haveEffects = Render && Driver->getPolygonMode() == UDriver::Filled
 			&& Driver->supportBloomEffect()
-			&& (ClientCfg.Bloom || FXAA);
+			&& (PostStack ? PostStack->anyStageEnabled() : (ClientCfg.Bloom || FXAA));
 		bool defaultRenderTarget = false;
-		if (haveEffects)
+		bool defaultRenderTargetActive = false;
+		if (haveEffects && !PostStack)
 		{
 			if (ClientCfg.Bloom)
 			{
@@ -1739,8 +1748,17 @@ bool mainLoop()
 			bool stereoRenderTarget = StereoDisplay->beginRenderTarget();
 			if (!stereoRenderTarget && haveEffects && !defaultRenderTarget && StereoDisplay->wantClear())
 			{
-				Driver->beginDefaultRenderTarget();
+				// Render scale: the scene target is created at round(window * scale); endDefaultRenderTarget resamples it
+				uint32 scaledW = 0, scaledH = 0;
+				if (PostStack)
+				{
+					uint32 windowW = 0, windowH = 0;
+					Driver->getWindowSize(windowW, windowH);
+					PostStack->getScaledSize(windowW, windowH, scaledW, scaledH);
+				}
+				Driver->beginDefaultRenderTarget(scaledW, scaledH);
 				defaultRenderTarget = true;
+				defaultRenderTargetActive = true;
 			}
 
 			if (StereoDisplay->wantClear())
@@ -1876,10 +1894,27 @@ bool mainLoop()
 					Driver->setViewport(NL3D::CViewport());
 					UCamera	pCam = Scene->getCam();
 					Driver->setMatrixMode2D11();
-					if (FXAA) FXAA->applyEffect();
-					if (ClientCfg.Bloom) CBloomEffect::instance().applyBloom();
+					if (PostStack)
+					{
+						PostStack->apply(Scene);
+					}
+					else
+					{
+						if (FXAA) FXAA->applyEffect();
+						if (ClientCfg.Bloom) CBloomEffect::instance().applyBloom();
+					}
 					Driver->setMatrixMode3D(pCam);
 					Driver->setViewport(StereoDisplay->getCurrentViewport());
+				}
+
+				if (defaultRenderTargetActive)
+				{
+					// Resolve the post-processed (and render-scaled) scene to the backbuffer now, before
+					// the 3D/2D interface: the UI is drawn at native resolution and is not post-processed.
+					// Stereo (VR) path untouched: defaultRenderTarget is only ever set when there is no
+					// stereo render target.
+					Driver->endDefaultRenderTarget(Scene);
+					defaultRenderTargetActive = false;
 				}
 			}
 
@@ -2330,10 +2365,11 @@ bool mainLoop()
 		if (!ClientCfg.Light && Render)
 			Scene->endWaterReflectionPasses();
 
-		if (defaultRenderTarget)
+		if (defaultRenderTargetActive)
 		{
-			// draw final result to backbuffer
+			// draw final result to backbuffer (only reached when no pass wanted scene effects)
 			Driver->endDefaultRenderTarget(Scene);
+			defaultRenderTargetActive = false;
 		}
 
 		// Draw to screen.

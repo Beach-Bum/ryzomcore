@@ -34,6 +34,7 @@
 // 3D Interface.
 #include "nel/3d/bloom_effect.h"
 #include "nel/3d/fxaa.h"
+#include "nel/3d/post_stack.h"
 #include "nel/3d/fasthls_modifier.h"
 #include "nel/3d/particle_system_manager.h"
 #include "nel/3d/particle_system.h"
@@ -533,6 +534,7 @@ void releaseOutGame()
 
 		// Release effects
 		delete FXAA; FXAA = nullptr;
+		delete PostStack; PostStack = nullptr;
 		CBloomEffect::releaseInstance();
 
 		// Release Scene, textcontexts, materials, ...
@@ -632,6 +634,7 @@ void release()
 
 		// Release effects
 		delete FXAA; FXAA = nullptr;
+		delete PostStack; PostStack = nullptr;
 		CBloomEffect::releaseInstance();
 
 		// Release texture

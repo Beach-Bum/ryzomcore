@@ -47,6 +47,7 @@
 #include "nel/3d/u_water_env_map.h"
 #include "nel/3d/material.h"
 #include "nel/3d/fxaa.h"
+#include "nel/3d/post_stack.h"
 // Sound
 #include "nel/sound/u_audio_mixer.h"
 // Client
@@ -618,6 +619,16 @@ void initMainLoop()
 
 		// create effects
 		if (ClientCfg.FXAA && !FXAA) FXAA = new NL3D::CFXAA(Driver);
+		// GL3 post stack (bloom / colour grade / FXAA tiers / resample; AO in part B). Unsupported drivers keep the legacy effects.
+		if (!PostStack)
+		{
+			PostStack = new NL3D::CPostStack(Driver);
+			if (!PostStack->isSupported())
+			{
+				delete PostStack;
+				PostStack = nullptr;
+			}
+		}
 
 		// use this scene for bloom effect
 		CBloomEffect::getInstance().setScene(Scene);

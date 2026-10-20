@@ -51,6 +51,7 @@ namespace NL3D
 	class IStereoDisplay;
 	class IStereoHMD;
 	class CFXAA;
+	class CPostStack;
 }
 
 class CEntityAnimationManager;
@@ -100,6 +101,7 @@ extern NL3D::UTextContext			*TextContext;	// Context for all the text in the cli
 
 // Effects
 extern NL3D::CFXAA					*FXAA;
+extern NL3D::CPostStack				*PostStack;	// GL3 post-processing stack; NULL on drivers without it (legacy FXAA/CBloomEffect path)
 
 // Main 3D Objects
 extern NL3D::UScene						*Scene;
