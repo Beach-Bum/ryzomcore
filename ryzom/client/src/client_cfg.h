@@ -291,13 +291,22 @@ struct CClientConfig
 	float			GlobalWindPower;
 	CVector			GlobalWindDirection;
 
-	// FXAA
+	// FXAA (legacy; maps to AntiAliasing=2 when no AntiAliasing key is present)
 	bool			FXAA;
 
 	// Is bloom effect activated
 	bool			Bloom;
 	bool			SquareBloom;
 	float			DensityBloom;
+
+	// GL3 post stack (E1-3, WoW-named): AO tier 0..3, AA tier 0..2 (0 none, 1 FXAA low, 2 FXAA high),
+	// glow intensity 0..1, internal render scale 50..200 %, resample sharpen 0..1, colour grade strength 0..1
+	sint			AmbientOcclusion;
+	sint			AntiAliasing;
+	float			BloomIntensity;
+	sint			RenderScale;
+	float			ResampleSharpness;
+	float			ColorGradeStrength;
 	/// Max number of water pools with realtime planar reflection per frame (0 = off)
 	sint			MaxWaterReflections;
 	/// Max reflection render target textures per eye (L and R each get up to this many); reflected planes tile into shared textures (-1 = as many as needed)

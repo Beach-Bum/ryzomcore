@@ -1672,11 +1672,13 @@ bool mainLoop()
 		CTextureUser *effectRenderTarget = nullptr;
 		if (PostStack)
 		{
-			// Engine phase of E1-3: drive the GL3 post stack from the existing cfg vars
-			// (FXAA -> AntiAliasing 2, Bloom -> bloom on at intensity 0.35). The client phase
-			// replaces this with AmbientOcclusion / AntiAliasing / BloomIntensity / RenderScale.
-			// TEMP (part B check): AO forced to tier 2 until ClientCfg.AmbientOcclusion exists.
-			PostStack->setQuality(2, ClientCfg.FXAA ? 2 : 0, ClientCfg.Bloom, 0.35f, 100, 0.3f, 1.0f);
+			// E1-3: drive the GL3 post stack from the cfg vars (live apply: setQuality is a cheap
+			// member write, so it runs every frame instead of a LastClientCfg diff). All stages off
+			// (AmbientOcclusion=0, AntiAliasing=0, Bloom=0, RenderScale=100) -> anyStageEnabled()
+			// is false and the frame takes the pre-stack path.
+			PostStack->setQuality((uint)std::max(ClientCfg.AmbientOcclusion, 0), (uint)std::max(ClientCfg.AntiAliasing, 0),
+				ClientCfg.Bloom, ClientCfg.BloomIntensity, (uint)std::max(ClientCfg.RenderScale, 0),
+				ClientCfg.ResampleSharpness, ClientCfg.ColorGradeStrength);
 		}
 		bool haveEffects = Render && Driver->getPolygonMode() == UDriver::Filled
 			&& Driver->supportBloomEffect()

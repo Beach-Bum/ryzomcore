@@ -404,6 +404,12 @@ CClientConfig::CClientConfig()
 	Bloom				= true;
 	SquareBloom			= true;
 	DensityBloom		= 255.f;
+	AmbientOcclusion	= 2;
+	AntiAliasing		= 2;
+	BloomIntensity		= 0.35f;
+	RenderScale			= 100;
+	ResampleSharpness	= 0.3f;
+	ColorGradeStrength	= 1.0f;
 	MaxWaterReflections	= 3;
 	MaxWaterReflectionTextures = 1;
 	ForceWaterReflections = false;
@@ -1043,6 +1049,21 @@ void CClientConfig::setValues()
 
 	// FXAA
 	READ_BOOL_FV(FXAA)
+
+	// GL3 post stack (E1-3). An old cfg with FXAA but no AntiAliasing key maps FXAA=1 -> AntiAliasing=2.
+	READ_INT_FV(AmbientOcclusion)
+	if (ClientCfg.ConfigFile.getVarPtr("AntiAliasing"))
+	{
+		READ_INT_FV(AntiAliasing)
+	}
+	else
+	{
+		ClientCfg.AntiAliasing = ClientCfg.FXAA ? 2 : 0;
+	}
+	READ_FLOAT_FV(BloomIntensity)
+	READ_INT_FV(RenderScale)
+	READ_FLOAT_FV(ResampleSharpness)
+	READ_FLOAT_FV(ColorGradeStrength)
 
 	// ScreenAspectRatio.
 	READ_FLOAT_FV(ScreenAspectRatio)
