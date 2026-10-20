@@ -704,7 +704,7 @@ void		CRenderTrav::renderSunShadowCascades()
 	{
 	case 1:  numCascades= 2; mapSize= 1024; pcfTaps= 1; maxDist= 80.f;  break;
 	case 2:  numCascades= 3; mapSize= 2048; pcfTaps= 3; maxDist= 150.f; break;
-	default: numCascades= 4; mapSize= 4096; pcfTaps= 5; maxDist= 250.f; break;
+	default: numCascades= 4; mapSize= 4096; pcfTaps= 3; maxDist= 250.f; break;
 	}
 
 	if(!drv->setupSunShadowMaps(numCascades, mapSize, pcfTaps))
@@ -731,6 +731,9 @@ void		CRenderTrav::renderSunShadowCascades()
 		float	lumSum= lumAmb + lumDif;
 		_SunShadowStrength= (lumSum > 0.f) ? lumAmb / lumSum : 1.f;
 		NLMISC::clamp(_SunShadowStrength, 0.f, 1.f);
+		// Floor: never darker than half the lit colour. Atys' giant roots put whole areas in shadow
+		// at noon; a hard physically-derived floor reads as a blackout. Tunable later via config.
+		_SunShadowStrength= std::max(_SunShadowStrength, 0.5f);
 	}
 
 	// Practical split scheme (lambda = 0.6) over [Near, min(Far, maxDist)]
