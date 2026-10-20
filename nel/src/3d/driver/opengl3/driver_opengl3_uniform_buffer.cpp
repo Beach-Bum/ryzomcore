@@ -75,6 +75,10 @@ const char *GLSLCameraHeader =
 	"    float _nlCamPad0;\n"
 	"    mat4  specularTexMtx;\n"
 	"    mat4  inverseProjectionBasis;\n" // inv(Projection * ChangeBasis): clip-space → NeL eye-space
+	"    mat4  nlSunShadowMatrix[4];\n"   // PZB-relative world → cascade clip space
+	"    vec4  nlSunShadowSplits;\n"      // eye-space far distance per cascade
+	"    vec4  nlSunShadowParams;\n"      // strength, 1/mapSize, numCascades, pcfTaps (0 = off)
+	"    vec4  nlViewport;\n"             // x, y, w, h of the GL viewport in pixels
 	"};\n";
 
 const char *GLSLObjectHeader =

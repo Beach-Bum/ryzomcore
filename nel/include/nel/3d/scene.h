@@ -642,6 +642,15 @@ public:
 	CVisualCollisionManager *getVisualCollisionManagerForShadow() const {return _VisualCollisionManagerForShadow;}
 	// @}
 
+	/// \name Sun cascaded shadow maps (whole-scene sun shadows, driver permitting; see IDriver::supportSunShadowMaps())
+	// @{
+	/** Quality tier. 0 = off (default). 1 = 2 cascades, 1024 texels, 1 tap, 80 m.
+	 *	2 = 3 cascades, 2048 texels, 3x3 PCF, 150 m. 3 = 4 cascades, 4096 texels, 5x5 PCF, 250 m.
+	 */
+	void			setSunShadowQuality(uint quality);
+	uint			getSunShadowQuality() const {return _SunShadowQuality;}
+	// @}
+
 	void			setWaterCallback(IWaterSurfaceAddedCallback *wcb) { _WaterCallback = wcb; }
 	IWaterSurfaceAddedCallback *getWaterCallback() const { return _WaterCallback; }
 
@@ -844,6 +853,9 @@ private:
 	uint			_ShadowMapMaxCasterInScreen;
 	uint			_ShadowMapMaxCasterAround;
 	CVisualCollisionManager		*_VisualCollisionManagerForShadow;
+
+	// Sun cascaded shadow maps quality tier (0 = off)
+	uint			_SunShadowQuality;
 
 	// GPU Skinning
 	bool			_GPUSkinningEnabled;

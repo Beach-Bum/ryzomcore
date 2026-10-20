@@ -283,8 +283,16 @@ struct CCameraUBOData
 	float _pad0;             //  4
 	float specularTexMtx[16]; // 64  (inverse view rotation: eye-space reflection → world-space cubemap lookup)
 	float inverseProjectionBasis[16]; // 64  inv(Projection * ChangeBasis): clip-space → NeL eye-space for nelvp ecPos
-};                           // 352
-nlctassert(sizeof(CCameraUBOData) == 352);
+	// Sun cascaded shadow maps (receive side)
+	float sunShadowMatrix[4][16]; // 256 PZB-relative world → cascade clip space, per cascade
+	float sunShadowSplits[4];     // 16  eye-space far distance of each cascade
+	float sunShadowParams[4];     // 16  strength, 1/mapSize, numCascades, pcfTaps (0 = receive disabled)
+	float viewport[4];            // 16  x, y, w, h of the current GL viewport (pixels)
+};                           // 656
+nlctassert(sizeof(CCameraUBOData) == 656);
+
+// Number of sun shadow cascades supported by the camera UBO layout
+#define NL_OPENGL3_MAX_SUN_SHADOW_CASCADES 4
 
 // ***************************************************************************
 // CPU-side struct matching the std140 NlLightInfo layout (96 bytes)
@@ -1213,6 +1221,25 @@ private:
 	void						stageCameraUBO();       // Populate _CameraUBOData from driver state
 	void						uploadCameraUBO();      // Upload _CameraUBOData to GPU if upload dirty
 
+	// Sun cascaded shadow maps (driver_opengl3_shadow.cpp)
+	GLuint						_SunShadowTexId;        // GL_TEXTURE_2D_ARRAY depth texture (one layer per cascade)
+	GLuint						_SunShadowFBOs[NL_OPENGL3_MAX_SUN_SHADOW_CASCADES]; // one depth-only FBO per layer
+	uint						_SunShadowNumCascades;  // 0 when not allocated
+	uint						_SunShadowMapSize;
+	uint						_SunShadowPcfTaps;
+	bool						_SunShadowReceive;      // receive requested by setSunShadowReceive()
+	float						_SunShadowStrength;
+	float						_SunShadowMatrix[NL_OPENGL3_MAX_SUN_SHADOW_CASCADES][16];
+	float						_SunShadowSplits[NL_OPENGL3_MAX_SUN_SHADOW_CASCADES];
+	bool						_SunShadowCasterPass;   // between beginSunShadowCascade() and endSunShadowCascade()
+	// State saved by beginSunShadowCascade(), restored by endSunShadowCascade()
+	GLuint						_SunShadowSavedFBO;
+	sint						_SunShadowSavedViewport[4];
+	bool						_SunShadowSavedColorMask[4];
+	bool						_SunShadowSavedScissor;
+	void						releaseSunShadowMaps();
+	void						bindSunShadowTexture(bool bind); // bind/unbind the depth array on the reserved unit
+
 	// Clip planes (in eye space, pre-transformed for shader)
 	enum { MaxClipPlanes = 6 };
 	bool						_ClipPlaneEnabled[MaxClipPlanes];
@@ -1558,6 +1585,18 @@ private:
 	bool		    supportVertexProgramDoubleSidedColor() const NL_OVERRIDE { return false; }
 
 	virtual	bool			supportMADOperator() const NL_OVERRIDE;
+
+	/// \name Sun cascaded shadow maps (driver_opengl3_shadow.cpp)
+	// @{
+	virtual bool			supportSunShadowMaps() const NL_OVERRIDE;
+	virtual bool			setupSunShadowMaps(uint numCascades, uint mapSize, uint pcfTaps) NL_OVERRIDE;
+	virtual bool			beginSunShadowCascade(uint cascade) NL_OVERRIDE;
+	virtual void			endSunShadowCascade() NL_OVERRIDE;
+	virtual void			setSunShadowCascade(uint cascade, const NLMISC::CMatrix &lightViewProj, float splitFar) NL_OVERRIDE;
+	virtual void			setSunShadowReceive(bool enable, float strength) NL_OVERRIDE;
+	/// Reserved fragment texture unit for the shadow map sampler, or -1 when unsupported (always >= IDRV_PROGRAM_MAXSAMPLERS)
+	sint					getSunShadowTextureUnit() const;
+	// @}
 	virtual	bool			supportLargeUBOArrays() const NL_OVERRIDE;
 
 

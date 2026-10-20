@@ -104,6 +104,7 @@ CRenderTrav::CRenderTrav()
 
 	_LayersRenderingOrder= true;
 	_FirstWaterModel = nullptr;
+	_SunShadowStrength= 1.f;
 }
 
 
@@ -226,6 +227,14 @@ void		CRenderTrav::traverse(UScene::TRenderPart renderPart, bool newRender, bool
 		NLMISC::OptFastFloorEnd();
 	}
 
+	// Sun cascaded shadow maps: decide once per traverse. The receive term is set for
+	// every traverse so other scenes (sky, reflections, UI scenes) never inherit it.
+	bool	sunShadows= generateShadows && Scene->getSunShadowQuality() > 0
+		&& !Scene->getWaterReflectionManager().isRenderingReflection()
+		&& getDriver()->supportSunShadowMaps();
+	if(!sunShadows)
+		getDriver()->setSunShadowReceive(false, 1.f);
+
 	if (renderPart & UScene::RenderOpaque)
 	{
 		// Render Opaque stuff.
@@ -234,6 +243,11 @@ void		CRenderTrav::traverse(UScene::TRenderPart renderPart, bool newRender, bool
 		// TestYoyo
 		//OrderOpaqueList.reset(0);
 		//OrderTransparentList.reset(0);
+
+		// Sun shadow cascades: depth-only caster pass over the opaque list, before the main
+		// opaque pass (needs the filled ordering table). Restores the driver camera itself.
+		if(sunShadows)
+			renderSunShadowCascades();
 
 		// Clear any landscape
 		clearRenderLandscapeList();
@@ -245,87 +259,7 @@ void		CRenderTrav::traverse(UScene::TRenderPart renderPart, bool newRender, bool
 
 		// Render the opaque materials
 		_CurrentPassOpaque = true;
-		OrderOpaqueList.begin();
-		if(_LightTableMode && _LightTableActive)
-		{
-			// Batched traversal: pre-fill the light table, then render.
-			// When the table is full, render the batch, flush, and continue.
-			while(OrderOpaqueList.get() != nullptr)
-			{
-				// Phase 1: collect lights for this batch
-				COrderingTable<CTransform>::CIterator batchStart = OrderOpaqueList.iterator();
-				uint batchCount = 0;
-				while(OrderOpaqueList.get() != nullptr)
-				{
-					CTransform *tr = OrderOpaqueList.get();
-					const CLightContribution *lc = nullptr;
-					if(tr->isLightable())
-					{
-						CSkeletonModel *ancestor = tr->getAncestorSkeletonModel();
-						if(ancestor)
-							lc = &ancestor->getLightContribution();
-						else
-							lc = &tr->getLightContribution();
-					}
-					if(!collectObjectLights(lc))
-						break;
-					batchCount++;
-					OrderOpaqueList.next();
-				}
-				COrderingTable<CTransform>::CIterator batchEnd = OrderOpaqueList.iterator();
-
-				// Phase 2: render the batch
-				OrderOpaqueList.setIterator(batchStart);
-				for(uint i = 0; i < batchCount; i++)
-				{
-					#ifdef NL_DEBUG_RENDER_TRAV
-						CTransformShape *trShape = dynamic_cast<CTransformShape *>(OrderOpaqueList.get());
-						if (trShape)
-						{
-							const std::string *shapeName = Scene->getShapeBank()->getShapeNameFromShapePtr(trShape->Shape);
-							if (shapeName)
-							{
-								nlwarning("Displaying %s", shapeName->c_str());
-							}
-						}
-					#endif
-					OrderOpaqueList.get()->traverseRender();
-					OrderOpaqueList.next();
-				}
-
-				// If more objects remain, flush for next batch
-				OrderOpaqueList.setIterator(batchEnd);
-				if(OrderOpaqueList.get() != nullptr)
-					flushLightTable();
-			}
-		}
-		else
-		{
-			// Non-table mode: single-pass render
-			while(OrderOpaqueList.get() != nullptr)
-			{
-				#ifdef NL_DEBUG_RENDER_TRAV
-					CTransformShape *trShape = dynamic_cast<CTransformShape *>(OrderOpaqueList.get());
-					if (trShape)
-					{
-						const std::string *shapeName = Scene->getShapeBank()->getShapeNameFromShapePtr(trShape->Shape);
-						if (shapeName)
-						{
-							nlwarning("Displaying %s", shapeName->c_str());
-						}
-					}
-				#endif
-				OrderOpaqueList.get()->traverseRender();
-				OrderOpaqueList.next();
-			}
-		}
-
-		/* Render MeshBlock Manager.
-			Some Meshs may be render per block. Interesting to remove VertexBuffer and Material setup overhead.
-			Faster if rendered before lods, for ZBuffer optimisation: render first near objects then far.
-			Lods are usually far objects.
-		*/
-		MeshBlockManager.flush(Driver, Scene, this);
+		renderOpaqueList(false);
 
 
 		// End LodCharacter Manager render.
@@ -575,6 +509,266 @@ void		CRenderTrav::traverse(UScene::TRenderPart renderPart, bool newRender, bool
 	// clean: reset the light setup
 	resetLightSetup();
 
+}
+
+// ***************************************************************************
+void		CRenderTrav::renderOpaqueList(bool shadowCasterPass)
+{
+	OrderOpaqueList.begin();
+	if(_LightTableMode && _LightTableActive)
+	{
+		// Batched traversal: pre-fill the light table, then render.
+		// When the table is full, render the batch, flush, and continue.
+		while(OrderOpaqueList.get() != nullptr)
+		{
+			// Phase 1: collect lights for this batch
+			COrderingTable<CTransform>::CIterator batchStart = OrderOpaqueList.iterator();
+			uint batchCount = 0;
+			while(OrderOpaqueList.get() != nullptr)
+			{
+				CTransform *tr = OrderOpaqueList.get();
+				const CLightContribution *lc = nullptr;
+				if(tr->isLightable())
+				{
+					CSkeletonModel *ancestor = tr->getAncestorSkeletonModel();
+					if(ancestor)
+						lc = &ancestor->getLightContribution();
+					else
+						lc = &tr->getLightContribution();
+				}
+				if(!collectObjectLights(lc))
+					break;
+				batchCount++;
+				OrderOpaqueList.next();
+			}
+			COrderingTable<CTransform>::CIterator batchEnd = OrderOpaqueList.iterator();
+
+			// Phase 2: render the batch
+			OrderOpaqueList.setIterator(batchStart);
+			for(uint i = 0; i < batchCount; i++)
+			{
+				CTransform *tr = OrderOpaqueList.get();
+				#ifdef NL_DEBUG_RENDER_TRAV
+					CTransformShape *trShape = dynamic_cast<CTransformShape *>(tr);
+					if (trShape)
+					{
+						const std::string *shapeName = Scene->getShapeBank()->getShapeNameFromShapePtr(trShape->Shape);
+						if (shapeName)
+						{
+							nlwarning("Displaying %s", shapeName->c_str());
+						}
+					}
+				#endif
+				// Shadow caster pass: the landscape model's traverseRender() only defers itself to the
+				// landscape list and registers as actor-shadow receiver; do the deferral only, so the
+				// receiver grid is not filled twice per frame.
+				CLandscapeModel *landscape = shadowCasterPass ? dynamic_cast<CLandscapeModel *>(tr) : nullptr;
+				if(landscape)
+					addRenderLandscape(landscape);
+				else
+					tr->traverseRender();
+				OrderOpaqueList.next();
+			}
+
+			// If more objects remain, flush for next batch
+			OrderOpaqueList.setIterator(batchEnd);
+			if(OrderOpaqueList.get() != nullptr)
+				flushLightTable();
+		}
+	}
+	else
+	{
+		// Non-table mode: single-pass render
+		while(OrderOpaqueList.get() != nullptr)
+		{
+			CTransform *tr = OrderOpaqueList.get();
+			#ifdef NL_DEBUG_RENDER_TRAV
+				CTransformShape *trShape = dynamic_cast<CTransformShape *>(tr);
+				if (trShape)
+				{
+					const std::string *shapeName = Scene->getShapeBank()->getShapeNameFromShapePtr(trShape->Shape);
+					if (shapeName)
+					{
+						nlwarning("Displaying %s", shapeName->c_str());
+					}
+				}
+			#endif
+			CLandscapeModel *landscape = shadowCasterPass ? dynamic_cast<CLandscapeModel *>(tr) : nullptr;
+			if(landscape)
+				addRenderLandscape(landscape);
+			else
+				tr->traverseRender();
+			OrderOpaqueList.next();
+		}
+	}
+
+	/* Render MeshBlock Manager.
+		Some Meshs may be render per block. Interesting to remove VertexBuffer and Material setup overhead.
+		Faster if rendered before lods, for ZBuffer optimisation: render first near objects then far.
+		Lods are usually far objects.
+	*/
+	MeshBlockManager.flush(Driver, Scene, this);
+}
+
+// ***************************************************************************
+void		CRenderTrav::renderSunShadowCascades()
+{
+	H_AUTO( NL3D_TravRender_SunShadowCascades );
+
+	IDriver	*drv= getDriver();
+
+	// Quality tiers: cascades, map size, PCF kernel, max distance
+	uint	quality= std::min(Scene->getSunShadowQuality(), 3u);
+	uint	numCascades, mapSize, pcfTaps;
+	float	maxDist;
+	switch(quality)
+	{
+	case 1:  numCascades= 2; mapSize= 1024; pcfTaps= 1; maxDist= 80.f;  break;
+	case 2:  numCascades= 3; mapSize= 2048; pcfTaps= 3; maxDist= 150.f; break;
+	default: numCascades= 4; mapSize= 4096; pcfTaps= 5; maxDist= 250.f; break;
+	}
+
+	if(!drv->setupSunShadowMaps(numCascades, mapSize, pcfTaps))
+	{
+		drv->setSunShadowReceive(false, 1.f);
+		return;
+	}
+
+	// Shadow strength: ambient share of the sun light. At night ambient dominates and
+	// shadows fade automatically. lum = 0.299 R + 0.587 G + 0.114 B.
+	{
+		float	lumAmb= 0.299f*SunAmbient.R + 0.587f*SunAmbient.G + 0.114f*SunAmbient.B;
+		float	lumDif= 0.299f*SunDiffuse.R + 0.587f*SunDiffuse.G + 0.114f*SunDiffuse.B;
+		float	lumSum= lumAmb + lumDif;
+		_SunShadowStrength= (lumSum > 0.f) ? lumAmb / lumSum : 1.f;
+		NLMISC::clamp(_SunShadowStrength, 0.f, 1.f);
+	}
+
+	// Practical split scheme (lambda = 0.6) over [Near, min(Far, maxDist)]
+	float	splitNear= Near;
+	float	splitFarMax= std::min(Far, maxDist);
+	if(splitFarMax <= splitNear)
+	{
+		drv->setSunShadowReceive(false, 1.f);
+		return;
+	}
+	const float	lambda= 0.6f;
+	float	splits[5];
+	splits[0]= splitNear;
+	for(uint i= 1; i < numCascades; ++i)
+	{
+		float	p= (float)i / (float)numCascades;
+		float	logSplit= splitNear * powf(splitFarMax / splitNear, p);
+		float	uniSplit= splitNear + (splitFarMax - splitNear) * p;
+		splits[i]= lambda * logSplit + (1.f - lambda) * uniSplit;
+	}
+	splits[numCascades]= splitFarMax;
+
+	// Light basis (NeL: I right, J forward, K up); the sun direction is the direction light travels
+	CVector	lightJ= getSunDirection();
+	if(lightJ.norm() < 0.001f)
+		lightJ= CVector(0.f, 0.f, -1.f);
+	lightJ.normalize();
+	CVector	upRef= (fabsf(lightJ.z) < 0.99f) ? CVector::K : CVector::I;
+	CVector	lightK= upRef - lightJ * (upRef * lightJ);
+	lightK.normalize();
+	CVector	lightI= lightJ ^ lightK;
+	lightI.normalize();
+	CMatrix	lightCam;
+	lightCam.identity();
+	lightCam.setRot(lightI, lightJ, lightK, true);
+	CMatrix	lightView= lightCam.inverted();	// rotation only; translation handled through PZB (CamPos)
+
+	// NeL → OpenGL basis change applied by the driver in front of the projection (y forward → -z)
+	CMatrix	changeBasis;
+	changeBasis.identity();
+	changeBasis.setRot(CVector(1.f, 0.f, 0.f), CVector(0.f, 0.f, -1.f), CVector(0.f, 1.f, 0.f), true);
+
+	// Main camera basis, PZB-relative (CamPos subtracted)
+	const CVector	camI= CamMatrix.getI();
+	const CVector	camJ= CamMatrix.getJ();
+	const CVector	camK= CamMatrix.getK();
+
+	const float		nearExtension= 200.f;	// pull the light near plane back for off-screen casters
+
+	for(uint c= 0; c < numCascades; ++c)
+	{
+		float	d0= splits[c];
+		float	d1= splits[c+1];
+
+		// 8 corners of the frustum slice, relative to the camera position
+		CVector	corners[8];
+		for(uint k= 0; k < 2; ++k)
+		{
+			float	d= (k == 0) ? d0 : d1;
+			float	sx= Perspective ? d / Near : 1.f;
+			float	l= Left*sx, r= Right*sx, b= Bottom*sx, t= Top*sx;
+			corners[k*4+0]= camI*l + camJ*d + camK*b;
+			corners[k*4+1]= camI*r + camJ*d + camK*b;
+			corners[k*4+2]= camI*r + camJ*d + camK*t;
+			corners[k*4+3]= camI*l + camJ*d + camK*t;
+		}
+
+		// Bounding sphere of the slice (centroid + max distance): the ortho extent then stays
+		// constant while the camera rotates, which keeps the texel snapping effective
+		CVector	center= CVector::Null;
+		for(uint k= 0; k < 8; ++k)
+			center+= corners[k];
+		center/= 8.f;
+		float	radius= 0.f;
+		for(uint k= 0; k < 8; ++k)
+			radius= std::max(radius, (corners[k] - center).norm());
+		radius= std::max(radius, 1.f);
+		radius*= 1.02f;	// margin for PCF taps
+
+		// Centre in light space, snapped to the texel grid to stop shadow swimming
+		CVector	centerL= lightView * center;
+		float	texel= 2.f * radius / (float)mapSize;
+		centerL.x= floorf(centerL.x / texel) * texel;
+		centerL.z= floorf(centerL.z / texel) * texel;
+
+		float	oLeft= centerL.x - radius;
+		float	oRight= centerL.x + radius;
+		float	oBottom= centerL.z - radius;
+		float	oTop= centerL.z + radius;
+		float	oNear= centerL.y - radius - nearExtension;
+		float	oFar= centerL.y + radius;
+
+		// Caster pass: depth-only re-render of the opaque list through the light camera
+		if(!drv->beginSunShadowCascade(c))
+			break;
+		drv->setFrustum(oLeft, oRight, oBottom, oTop, oNear, oFar, false);
+		drv->setupViewMatrixEx(lightView, CamPos);
+
+		clearRenderLandscapeList();
+		CLodCharacterManager	*clodMngr= Scene->getLodCharacterManager();
+		if(clodMngr)
+			clodMngr->beginRender(drv, CamPos);
+		_CurrentPassOpaque = true;
+		renderOpaqueList(true);
+		if(clodMngr)
+			clodMngr->endRender();
+		// Coarse meshes are (re)added during the opaque traversal; flush them here as casters
+		// so the main pass flush does not render duplicates.
+		if( Scene->getCoarseMeshManager() )
+			Scene->getCoarseMeshManager()->flushRender(drv);
+		renderLandscapes();
+		clearRenderLandscapeList();
+
+		drv->endSunShadowCascade();
+
+		// Receive matrix: PZB-relative world → cascade clip space, identical to what the driver
+		// just rendered with (ortho * changeBasis * lightView)
+		CMatrix	ortho;
+		ortho.identity();
+		ortho.ortho(oLeft, oRight, oBottom, oTop, oNear, oFar);
+		CMatrix	lightViewProj= ortho * changeBasis * lightView;
+		drv->setSunShadowCascade(c, lightViewProj, d1);
+	}
+
+	// Restore the main camera and enable receive for the main pass
+	setupDriverCamera();
+	drv->setSunShadowReceive(true, _SunShadowStrength);
 }
 
 // ***************************************************************************

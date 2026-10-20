@@ -639,6 +639,15 @@ public:
 	virtual	void			setVisualCollisionManagerForShadow(UVisualCollisionManager *vcm) =0;
 	// @}
 
+	/// \name Sun cascaded shadow maps (whole-scene sun shadows; no-op on drivers without support)
+	// @{
+	/** Quality tier. 0 = off (default). 1 = 2 cascades, 1024 texels, 1 tap, 80 m.
+	 *	2 = 3 cascades, 2048 texels, 3x3 PCF, 150 m. 3 = 4 cascades, 4096 texels, 5x5 PCF, 250 m.
+	 */
+	virtual	void			setSunShadowQuality(uint quality) =0;
+	virtual	uint			getSunShadowQuality() const =0;
+	// @}
+
 	// set a callback to know when a water surface is instantiated
 	virtual void			setWaterCallback(IWaterSurfaceAddedCallback *wcb) = 0;
 	virtual IWaterSurfaceAddedCallback *getWaterCallback() const = 0;

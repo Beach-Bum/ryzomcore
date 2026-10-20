@@ -2348,6 +2348,25 @@ void CDriverGL3::setupInitialUniforms(IProgram *program)
 			}
 		}
 
+		// Sun shadow map sampler: reserved unit above the material sampler range, set once at link
+		{
+			sint shadowUnit = getSunShadowTextureUnit();
+			if (shadowUnit >= 0)
+			{
+				GLint shadowLoc = nglGetUniformLocation(id, "nlSunShadowMap");
+				if (shadowLoc >= 0)
+				{
+#ifdef USE_OPENGLES3
+					nglUseProgram(id);
+					glUniform1i(shadowLoc, shadowUnit);
+					nglUseProgram(0);
+#else
+					nglProgramUniform1i(id, shadowLoc, shadowUnit);
+#endif
+				}
+			}
+		}
+
 		// Resolve and cache NlLightTable UBO block index, bind to its binding point
 		GLuint lightTableBlock = nglGetUniformBlockIndex(id, "NlLightTable");
 		drvInfo->setLightTableBlockIndex(lightTableBlock);

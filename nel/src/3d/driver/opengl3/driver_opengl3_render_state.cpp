@@ -408,6 +408,24 @@ void CDriverGL3::stageCameraUBO()
 		memcpy(data.inverseProjectionBasis, invProjBasis.get(), 16 * sizeof(float));
 	}
 
+	// Sun cascaded shadow maps (receive side). Receive is forced off while a cascade
+	// caster pass is active (the depth array is the current render target).
+	{
+		memcpy(data.sunShadowMatrix, _SunShadowMatrix, sizeof(_SunShadowMatrix));
+		memcpy(data.sunShadowSplits, _SunShadowSplits, sizeof(_SunShadowSplits));
+		bool receive = _SunShadowReceive && !_SunShadowCasterPass && _SunShadowTexId && _SunShadowNumCascades;
+		data.sunShadowParams[0] = _SunShadowStrength;
+		data.sunShadowParams[1] = _SunShadowMapSize ? 1.0f / (float)_SunShadowMapSize : 0.0f;
+		data.sunShadowParams[2] = (float)_SunShadowNumCascades;
+		data.sunShadowParams[3] = receive ? (float)_SunShadowPcfTaps : 0.0f;
+		sint vx, vy, vw, vh;
+		_DriverGLStates.getViewport(vx, vy, vw, vh);
+		data.viewport[0] = (float)vx;
+		data.viewport[1] = (float)vy;
+		data.viewport[2] = (float)std::max(vw, 1);
+		data.viewport[3] = (float)std::max(vh, 1);
+	}
+
 	_CameraUBODirty = false;
 	_CameraUBOUploadDirty = true;
 }

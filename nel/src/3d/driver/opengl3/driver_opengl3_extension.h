@@ -287,6 +287,7 @@ namespace NLDRIVERGL3 {
 
 #define nglActiveTexture glActiveTexture
 
+#define nglTexImage3D glTexImage3D
 #define nglCompressedTexImage3D glCompressedTexImage3D
 #define nglCompressedTexImage2D glCompressedTexImage2D
 // glCompressedTexImage1D not available in GLES 3.0
@@ -494,6 +495,7 @@ extern PFNGLFRAMEBUFFERTEXTURELAYERPROC					nglFramebufferTextureLayer;
 
 extern PFNGLACTIVETEXTUREPROC							nglActiveTexture;
 
+extern PFNGLTEXIMAGE3DPROC								nglTexImage3D;
 extern PFNGLCOMPRESSEDTEXIMAGE3DPROC					nglCompressedTexImage3D;
 extern PFNGLCOMPRESSEDTEXIMAGE2DPROC					nglCompressedTexImage2D;
 extern PFNGLCOMPRESSEDTEXIMAGE1DPROC					nglCompressedTexImage1D;

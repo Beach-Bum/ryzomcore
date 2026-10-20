@@ -80,12 +80,15 @@ static const char *s_LightFacAccess[8] = {
 	"nlLightFactors45.x", "nlLightFactors45.y", "nlLightFactors45.z", "nlLightFactors45.w"
 };
 
-void megaPPGenerate(std::string &result, bool fogOrPpl, bool cube, bool specular, bool ppClip, bool tableUBO, bool cameraUBO, bool objectUBO, bool materialUBO, bool linked = false)
+void megaPPGenerate(std::string &result, bool fogOrPpl, bool cube, bool specular, bool ppClip, bool tableUBO, bool cameraUBO, bool objectUBO, bool materialUBO, bool linked = false, bool sunShadow = false)
 {
 	// Object UBO implies camera UBO
 	if (objectUBO) { cameraUBO = true; }
 	// ppClip implies fogOrPpl (needs ecPos varying)
 	if (ppClip) { fogOrPpl = true; }
+	// Sun shadow receive: only world geometry variants with the camera UBO
+	// (matrices/splits/viewport live in NlCamera). Runtime-gated by nlSunShadowParams.w.
+	sunShadow = sunShadow && fogOrPpl && cameraUBO;
 
 	std::stringstream ss;
 	if (linked)
@@ -161,6 +164,14 @@ void megaPPGenerate(std::string &result, bool fogOrPpl, bool cube, bool specular
 			ss << "uniform samplerCube sampler" << i << ";" << std::endl;
 		else
 			ss << "uniform sampler2D sampler" << i << ";" << std::endl;
+	}
+	if (sunShadow)
+	{
+		// Bound once at link time to the reserved unit (CDriverGL3::getSunShadowTextureUnit)
+		if (linked)
+			ss << "uniform highp sampler2DArrayShadow nlSunShadowMap;" << std::endl;
+		else
+			ss << "uniform sampler2DArrayShadow nlSunShadowMap;" << std::endl;
 	}
 	ss << std::endl;
 
@@ -690,6 +701,52 @@ void megaPPGenerate(std::string &result, bool fogOrPpl, bool cube, bool specular
 	ss << "  if (nlAlphaTest != 0 && fragColor.a <= alphaRef) discard;" << std::endl;
 	ss << std::endl;
 
+	// Sun cascaded shadow receive (runtime-gated by nlSunShadowParams.w = PCF taps, 0 = off).
+	// Applied before fog. World position is rebuilt from gl_FragCoord so it works for every
+	// vertex program (mega VP, nelvp landscape, user VPs) without touching their varyings:
+	// window → NDC (nlViewport, depth range [0,1]) → clip (undo the perspective divide with
+	// gl_FragCoord.w = 1/clip.w) → NeL eye space (inverseProjectionBasis) → PZB-relative world
+	// (inverse of the view rotation, same formula the mega VP uses for its worldPos varying).
+	if (sunShadow)
+	{
+		ss << "  if (nlSunShadowParams.w > 0.0) {" << std::endl;
+		ss << "    vec2 shNdcXY = (gl_FragCoord.xy - nlViewport.xy) / nlViewport.zw * 2.0 - 1.0;" << std::endl;
+		ss << "    float shNdcZ = gl_FragCoord.z * 2.0 - 1.0;" << std::endl;
+		ss << "    vec4 shClipPos = vec4(shNdcXY, shNdcZ, 1.0) / gl_FragCoord.w;" << std::endl;
+		ss << "    vec4 shEyePos = inverseProjectionBasis * shClipPos;" << std::endl;
+		ss << "    vec3 shEyeP = shEyePos.xyz / shEyePos.w;" << std::endl;
+		ss << "    vec3 shWsPos = transpose(mat3(viewMatrix)) * (shEyeP - viewMatrix[3].xyz);" << std::endl;
+		ss << "    float shDepth = shEyeP.y;" << std::endl; // NeL eye space: y is forward
+		ss << "    int shNumC = int(nlSunShadowParams.z);" << std::endl;
+		ss << "    float shMaxDist = (shNumC >= 4) ? nlSunShadowSplits.w : (shNumC == 3) ? nlSunShadowSplits.z : (shNumC == 2) ? nlSunShadowSplits.y : nlSunShadowSplits.x;" << std::endl;
+		ss << "    if (shDepth < shMaxDist) {" << std::endl;
+		// Cascade select by eye-space depth against the split distances
+		ss << "      mat4 shMat = nlSunShadowMatrix[0];" << std::endl;
+		ss << "      float shLayer = 0.0;" << std::endl;
+		ss << "      if (shNumC > 1 && shDepth > nlSunShadowSplits.x) { shMat = nlSunShadowMatrix[1]; shLayer = 1.0; }" << std::endl;
+		ss << "      if (shNumC > 2 && shDepth > nlSunShadowSplits.y) { shMat = nlSunShadowMatrix[2]; shLayer = 2.0; }" << std::endl;
+		ss << "      if (shNumC > 3 && shDepth > nlSunShadowSplits.z) { shMat = nlSunShadowMatrix[3]; shLayer = 3.0; }" << std::endl;
+		ss << "      vec4 shPos = shMat * vec4(shWsPos, 1.0);" << std::endl;
+		ss << "      vec3 shCoord = shPos.xyz / shPos.w * 0.5 + 0.5;" << std::endl;
+		ss << "      float shLit = 1.0;" << std::endl;
+		// Beyond the cascade far plane there is no caster information: treat as lit
+		ss << "      if (shCoord.z <= 1.0) {" << std::endl;
+		ss << "        int shR = (int(nlSunShadowParams.w) - 1) / 2;" << std::endl; // 1 → 0, 3 → 1, 5 → 2
+		ss << "        float shSum = 0.0;" << std::endl;
+		ss << "        for (int shDy = -shR; shDy <= shR; ++shDy)" << std::endl;
+		ss << "          for (int shDx = -shR; shDx <= shR; ++shDx)" << std::endl;
+		ss << "            shSum += texture(nlSunShadowMap, vec4(shCoord.xy + vec2(float(shDx), float(shDy)) * nlSunShadowParams.y, shLayer, shCoord.z));" << std::endl;
+		ss << "        shLit = shSum / float((2 * shR + 1) * (2 * shR + 1));" << std::endl;
+		ss << "      }" << std::endl;
+		// Fade out over the last 15% of the shadow range so the far edge is not a hard line
+		ss << "      float shFade = clamp((shDepth - 0.85 * shMaxDist) / (0.15 * shMaxDist), 0.0, 1.0);" << std::endl;
+		ss << "      shLit = mix(shLit, 1.0, shFade);" << std::endl;
+		ss << "      fragColor.rgb *= mix(nlSunShadowParams.x, 1.0, shLit);" << std::endl;
+		ss << "    }" << std::endl;
+		ss << "  }" << std::endl;
+		ss << std::endl;
+	}
+
 	// Fog (runtime-gated: fogOrPpl=1 always has the function, but only applies when fog is enabled)
 	if (fogOrPpl)
 		ss << "  if (nlFogEnabled != 0) fragColor = applyFog(fragColor);" << std::endl;
@@ -709,6 +766,8 @@ bool CDriverGL3::initMegaPixelPrograms()
 	int activeObjectUBO = m_UseMegaObjectUBO ? 1 : 0;
 	int activeMaterialUBO = m_UseMegaMaterialUBO ? 1 : 0;
 	int activePPClip = m_PPClipPlanes ? 1 : 0;
+	// Sun shadow receive code is a driver-wide property (needs a reserved texture unit), not a variant axis
+	bool sunShadow = supportSunShadowMaps();
 
 #ifdef __EMSCRIPTEN__
 	{
@@ -807,7 +866,7 @@ bool CDriverGL3::initMegaPixelPrograms()
 										}
 
 										std::string result;
-										megaPPGenerate(result, fogOrPpl != 0, cube != 0, specular != 0, ppClip != 0, tableUBO != 0, cameraUBO != 0, objectUBO != 0, materialUBO != 0, linked != 0);
+										megaPPGenerate(result, fogOrPpl != 0, cube != 0, specular != 0, ppClip != 0, tableUBO != 0, cameraUBO != 0, objectUBO != 0, materialUBO != 0, linked != 0, sunShadow);
 
 										CPixelProgram *pp = new CPixelProgram();
 										IProgram::CSource *src = new IProgram::CSource();

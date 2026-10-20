@@ -1038,6 +1038,18 @@ void			CSceneUser::setShadowMapTextureSize(uint size)
 }
 
 // ***************************************************************************
+void			CSceneUser::setSunShadowQuality(uint quality)
+{
+	_Scene.setSunShadowQuality(quality);
+}
+
+// ***************************************************************************
+uint			CSceneUser::getSunShadowQuality() const
+{
+	return _Scene.getSunShadowQuality();
+}
+
+// ***************************************************************************
 uint			CSceneUser::getShadowMapBlurSize() const
 {
 	return _Scene.getShadowMapBlurSize();

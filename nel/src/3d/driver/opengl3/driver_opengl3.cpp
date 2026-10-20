@@ -339,6 +339,26 @@ CDriverGL3::CDriverGL3()
 	_CameraUBODirty = true;
 	_CameraUBOUploadDirty = false;
 	_CameraUBOCapacity = 0;
+	_SunShadowTexId = 0;
+	for (uint i = 0; i < NL_OPENGL3_MAX_SUN_SHADOW_CASCADES; ++i)
+	{
+		_SunShadowFBOs[i] = 0;
+		_SunShadowSplits[i] = 0.f;
+	}
+	memset(_SunShadowMatrix, 0, sizeof(_SunShadowMatrix));
+	_SunShadowNumCascades = 0;
+	_SunShadowMapSize = 0;
+	_SunShadowPcfTaps = 1;
+	_SunShadowReceive = false;
+	_SunShadowStrength = 1.f;
+	_SunShadowCasterPass = false;
+	_SunShadowSavedFBO = 0;
+	_SunShadowSavedScissor = false;
+	for (uint i = 0; i < 4; ++i)
+	{
+		_SunShadowSavedViewport[i] = 0;
+		_SunShadowSavedColorMask[i] = true;
+	}
 	_LightTableObjCount = 0;
 	_NumPerPixelLights = 0;
 	for (uint i = 0; i < MaxLight; ++i)
@@ -991,6 +1011,7 @@ bool CDriverGL3::release()
 		nglDeleteBuffers(1, &_CameraUBOId);
 		_CameraUBOId = 0;
 	}
+	releaseSunShadowMaps();
 	if (_ObjectUBOId)
 	{
 		nglDeleteBuffers(1, &_ObjectUBOId);
@@ -1105,6 +1126,7 @@ void CDriverGL3::setupViewport (const class CViewport& viewport)
 	sint iheight=(sint)((float)clientHeight*height+0.5f);
 	clamp (iheight, 0, (sint)clientHeight-iy);
 	_DriverGLStates.viewport(ix, iy, iwidth, iheight);
+	_CameraUBODirty = true; // nlViewport lives in the camera UBO
 }
 
 // --------------------------------------------------

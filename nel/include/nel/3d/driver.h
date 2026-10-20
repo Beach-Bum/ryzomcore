@@ -1476,6 +1476,35 @@ public:
 	/// Returns false on ANGLE/D3D11 where the GLSL-to-HLSL translator fails on large arrays.
 	virtual bool			supportLargeUBOArrays() const { return true; }
 
+	/// \name Sun cascaded shadow maps (optional; default implementations are no-ops so legacy drivers are untouched)
+	// @{
+	/// True if the driver can render and receive sun cascaded shadow maps.
+	virtual bool			supportSunShadowMaps() const { return false; }
+	/** Allocate (or re-allocate) the cascade depth maps. numCascades==0 releases them.
+	 *	\param numCascades number of cascades (1..4)
+	 *	\param mapSize size in texels of each (square) cascade map
+	 *	\param pcfTaps PCF kernel width (1, 3 or 5)
+	 *	\return false if unsupported or allocation failed.
+	 */
+	virtual bool			setupSunShadowMaps(uint numCascades, uint mapSize, uint pcfTaps) { return false; }
+	/** Begin rendering the caster depth of the given cascade: binds the cascade depth layer, sets the viewport
+	 *	to the map size, clears depth, disables colour writes and enables polygon offset.
+	 *	The caller then sets the light camera with setFrustum()/setupViewMatrixEx() and renders the casters.
+	 */
+	virtual bool			beginSunShadowCascade(uint cascade) { return false; }
+	/// End the cascade caster pass: restores render target, viewport, colour mask and polygon offset.
+	virtual void			endSunShadowCascade() {}
+	/** Set the receive matrix of a cascade. lightViewProj transforms PZB-relative world positions
+	 *	(world - cameraPos given to setupViewMatrixEx()) to the cascade clip space. splitFar is the
+	 *	eye-space distance up to which this cascade is used.
+	 */
+	virtual void			setSunShadowCascade(uint cascade, const NLMISC::CMatrix &lightViewProj, float splitFar) {}
+	/** Enable/disable the shadow receive term in the pixel programs for the following renders.
+	 *	strength is the colour multiplier applied in shadow (1 = no shadow, 0 = black).
+	 */
+	virtual void			setSunShadowReceive(bool enable, float strength) {}
+	// @}
+
 	// Adapter class
 	class CAdapter
 	{

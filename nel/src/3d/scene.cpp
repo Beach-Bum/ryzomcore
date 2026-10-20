@@ -188,6 +188,7 @@ CScene::CScene(bool bSmallScene) : LightTrav(bSmallScene)
 	_ShadowMapMaxCasterInScreen= NL3D_SCENE_DEFAULT_SHADOW_MAP_MAX_CASTER_IN_SCREEN;
 	_ShadowMapMaxCasterAround= NL3D_SCENE_DEFAULT_SHADOW_MAP_MAX_CASTER_AROUND;
 	_VisualCollisionManagerForShadow = nullptr;
+	_SunShadowQuality = 0;
 
 	_GPUSkinningEnabled = true;
 
@@ -1413,6 +1414,25 @@ void			CScene::setShadowMapTextureSize(uint size)
 void			CScene::setShadowMapBlurSize(uint bs)
 {
 	_ShadowMapBlurSize= bs;
+}
+
+// ***************************************************************************
+void			CScene::setSunShadowQuality(uint quality)
+{
+	quality= min(quality, 3U);
+	if(quality == _SunShadowQuality)
+		return;
+	_SunShadowQuality= quality;
+	// Tier 0: release the driver maps now, so the exact previous look (and memory) is restored
+	if(quality == 0)
+	{
+		IDriver	*drv= getDriver();
+		if(drv)
+		{
+			drv->setSunShadowReceive(false, 1.f);
+			drv->setupSunShadowMaps(0, 0, 0);
+		}
+	}
 }
 
 // ***************************************************************************

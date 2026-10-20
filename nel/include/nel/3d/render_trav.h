@@ -396,6 +396,19 @@ public:
 
 private:
 
+	/// \name Sun cascaded shadow maps (see CScene::setSunShadowQuality())
+	// @{
+	/** Render the sun shadow cascades (depth-only re-render of the opaque list through the driver's
+	 *	IDriver::beginSunShadowCascade()/endSunShadowCascade()), then restore the main camera
+	 *	and enable receive. Called at the start of the opaque pass when enabled.
+	 */
+	void			renderSunShadowCascades();
+	/// Render the opaque ordering table (models + mesh block manager). Shared by the main pass and the shadow caster pass.
+	void			renderOpaqueList(bool shadowCasterPass);
+	// Colour multiplier in shadow for this frame: lum(SunAmbient) / lum(SunAmbient + SunDiffuse)
+	float			_SunShadowStrength;
+	// @}
+
 	// A grow only list of models to be rendered.
 	std::vector<CTransform*>	RenderList;
 	uint32						_CurrentNumVisibleModels;

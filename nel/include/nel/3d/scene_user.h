@@ -299,6 +299,12 @@ public:
 	virtual	void			setVisualCollisionManagerForShadow(UVisualCollisionManager *vcm) NL_OVERRIDE;
 	// @}
 
+	/// \name Sun cascaded shadow maps
+	// @{
+	virtual	void			setSunShadowQuality(uint quality) NL_OVERRIDE;
+	virtual	uint			getSunShadowQuality() const NL_OVERRIDE;
+	// @}
+
 	void						setWaterCallback(IWaterSurfaceAddedCallback *wcb) NL_OVERRIDE;
 	IWaterSurfaceAddedCallback *getWaterCallback() const NL_OVERRIDE;
 

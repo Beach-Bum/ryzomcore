@@ -147,6 +147,10 @@ public:
 
 	/// glColorMask().
 	void colorMask(bool red, bool green, bool blue, bool alpha);
+	void getColorMask(bool &red, bool &green, bool &blue, bool &alpha) const
+	{
+		red = m_CurColorMaskR; green = m_CurColorMaskG; blue = m_CurColorMaskB; alpha = m_CurColorMaskA;
+	}
 
 	/// @}
 
@@ -155,6 +159,7 @@ public:
 
 	/// glEnable/glDisable(GL_SCISSOR_TEST).
 	void enableScissorTest(bool enable);
+	bool isScissorTestEnabled() const { return m_CurScissorTest; }
 
 	/// @}
 
@@ -198,6 +203,10 @@ public:
 
 	/// glViewport().
 	void viewport(sint x, sint y, sint width, sint height);
+	void getViewport(sint &x, sint &y, sint &width, sint &height) const
+	{
+		x = m_CurViewportX; y = m_CurViewportY; width = m_CurViewportWidth; height = m_CurViewportHeight;
+	}
 
 	/// glScissor().
 	void scissor(sint x, sint y, sint width, sint height);
