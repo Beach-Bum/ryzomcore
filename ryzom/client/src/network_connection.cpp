@@ -673,6 +673,9 @@ bool	CNetworkConnection::connect(string &result)
 		// Under UDP we need to connect one by one by ourselves
 		_FrontendHost = frontendHost;
 		_FrontendHostIndex = 0;
+		// Re-evaluate here: the global NetMngr is constructed before client.cfg is parsed,
+		// so the constructor only ever sees the default of ClientCfg.QuicConnection.
+		m_UseQuic = ClientCfg.QuicConnection && m_QuicConnection.isSupported();
 		if (m_UseQuic)
 		{
 			// Only need one connection attempt on QUIC as it handles migration
