@@ -741,6 +741,16 @@ void megaPPGenerate(std::string &result, bool fogOrPpl, bool cube, bool specular
 		// Fade out over the last 15% of the shadow range so the far edge is not a hard line
 		ss << "      float shFade = clamp((shDepth - 0.85 * shMaxDist) / (0.15 * shMaxDist), 0.0, 1.0);" << std::endl;
 		ss << "      shLit = mix(shLit, 1.0, shFade);" << std::endl;
+		// Debug views (NL_SUN_SHADOW_DEBUG env var → strength encoded as -(mode+1) by the driver):
+		// 1 = lit mask, 2 = cascade index (R,G,B,W), 3 = reconstructed world position as a 10 m grid,
+		// 4 = shadow map coordinates (u, v, depth).
+		ss << "      if (nlSunShadowParams.x < -0.5) {" << std::endl;
+		ss << "        int shDbg = int(-nlSunShadowParams.x + 0.5) - 1;" << std::endl;
+		ss << "        if (shDbg == 1) fragColor = vec4(vec3(shLit), 1.0);" << std::endl;
+		ss << "        else if (shDbg == 2) fragColor = vec4(shLayer == 0.0 ? 1.0 : 0.0, shLayer == 1.0 ? 1.0 : 0.0, shLayer == 2.0 ? 1.0 : 0.0, 1.0) + (shLayer == 3.0 ? vec4(1.0) : vec4(0.0));" << std::endl;
+		ss << "        else if (shDbg == 3) fragColor = vec4(fract(shWsPos * 0.1), 1.0);" << std::endl;
+		ss << "        else fragColor = vec4(shCoord, 1.0);" << std::endl;
+		ss << "      } else" << std::endl;
 		ss << "      fragColor.rgb *= mix(nlSunShadowParams.x, 1.0, shLit);" << std::endl;
 		ss << "    }" << std::endl;
 		ss << "  }" << std::endl;

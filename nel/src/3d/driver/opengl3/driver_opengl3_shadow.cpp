@@ -288,7 +288,17 @@ void CDriverGL3::setSunShadowReceive(bool enable, float strength)
 {
 	_SunShadowReceive = enable && _SunShadowTexId != 0 && _SunShadowNumCascades != 0;
 	NLMISC::clamp(strength, 0.f, 1.f);
-	_SunShadowStrength = strength;
+	// Debug views, selected once from the environment (see the receive shader): strength < -0.5
+	// encodes the mode as -(mode+1); the shader draws the view instead of attenuating.
+	static int s_DebugMode = -1;
+	if (s_DebugMode < 0)
+	{
+		const char *dbg = getenv("NL_SUN_SHADOW_DEBUG");
+		s_DebugMode = dbg ? atoi(dbg) : 0;
+		if (s_DebugMode > 0)
+			nlinfo("GL3: Sun shadow debug view %d enabled (NL_SUN_SHADOW_DEBUG)", s_DebugMode);
+	}
+	_SunShadowStrength = (s_DebugMode > 0) ? -(float)(s_DebugMode + 1) : strength;
 	if (_SunShadowReceive)
 		bindSunShadowTexture(true);
 	_CameraUBODirty = true;
