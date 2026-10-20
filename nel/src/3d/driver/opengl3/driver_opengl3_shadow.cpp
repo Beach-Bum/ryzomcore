@@ -67,6 +67,19 @@ bool CDriverGL3::supportSunShadowMaps() const
 }
 
 // ***************************************************************************
+bool CDriverGL3::useSunShadowDepthOnlyPP() const
+{
+	// Caster pass only. Alpha-tested materials (foliage cut-outs) need the real PP for
+	// the discard; blended materials are not expected in the opaque list but keep the
+	// full PP when they show up. Everything else only contributes depth.
+	if (!_SunShadowCasterPass || !_CurrentMaterial)
+		return false;
+	if (_CurrentMaterial->getAlphaTest() || _CurrentMaterial->getBlend())
+		return false;
+	return true;
+}
+
+// ***************************************************************************
 void CDriverGL3::bindSunShadowTexture(bool bind)
 {
 	sint unit = getSunShadowTextureUnit();

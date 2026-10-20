@@ -912,10 +912,66 @@ bool CDriverGL3::initMegaPixelPrograms()
 			}
 		}
 	}
+
+	// Sun shadow caster pass helper programs; a failure here only disables the
+	// depth-only path (the normal mega PP is used for casters instead).
+	if (sunShadow && !initSunShadowDepthPrograms())
+		nlwarning("GL3: Sun shadow depth-only pixel program unavailable, casters use the mega PP");
+
 	return true;
 }
 
-bool CDriverGL3::setupMegaPixelProgram()
+bool CDriverGL3::initSunShadowDepthPrograms()
+{
+	bool ok = true;
+	for (int linked = 0; linked < 2; ++linked)
+	{
+		if (!linked && !m_SupportSSO) continue;
+		if (linked && !m_LinkedMegaShaders) continue;
+		if (m_SunShadowDepthPP[linked]) continue;
+
+		// Empty fragment stage: depth comes from the rasteriser, colour writes are
+		// masked off by beginSunShadowCascade(). No uniforms, no UBOs, no varying inputs.
+		std::stringstream ss;
+		if (linked)
+		{
+			ss << "#version 300 es" << std::endl;
+			ss << "precision highp float;" << std::endl;
+		}
+		else
+		{
+			ss << "#version 330" << std::endl;
+			ss << "#extension GL_ARB_separate_shader_objects : enable" << std::endl;
+		}
+		ss << "// Sun shadow depth-only Pixel Program (linked=" << linked << ")" << std::endl;
+		ss << "void main()" << std::endl;
+		ss << "{" << std::endl;
+		ss << "}" << std::endl;
+
+		CPixelProgram *pp = new CPixelProgram();
+		IProgram::CSource *src = new IProgram::CSource();
+		src->Profile = linked ? IProgram::glsl300esf : IProgram::glsl330f;
+		src->DisplayName = NLMISC::toString("Sun shadow depth PP (linked=%d)", linked);
+		src->Features.NoUniforms = true;
+		src->Features.NoBuiltinUniforms = true;
+		src->Features.OnlyUBOs = true;
+		src->setSource(ss.str());
+		pp->addSource(src);
+
+		nldebug("GL3: Compile '%s'", src->DisplayName.c_str());
+		if (!compilePixelProgram(pp))
+		{
+			nlwarning("GL3: Sun shadow depth PP compilation failed (%s)", src->DisplayName.c_str());
+			delete pp;
+			ok = false;
+			continue;
+		}
+		m_SunShadowDepthPP[linked] = pp;
+	}
+	return ok;
+}
+
+bool CDriverGL3::setupMegaPixelProgram(bool depthOnly)
 {
 	nlassert(!m_UserPixelProgram); // See setupBuiltinPixelProgram
 
@@ -967,6 +1023,20 @@ bool CDriverGL3::setupMegaPixelProgram()
 	m_ProgramUsesCameraUBO[PixelProgram] = cameraUBO;
 	m_ProgramUsesObjectUBO[PixelProgram] = objectUBO;
 	m_ProgramUsesMaterialUBO[PixelProgram] = materialUBO;
+
+	// Sun shadow caster pass, depth-only: the empty SSO PP replaces the mega PP
+	// (not when the PP has to do the clip discard)
+	if (depthOnly && !ppClip && m_SunShadowDepthPP[0] && m_SunShadowDepthPP[0]->m_DrvInfo)
+	{
+		m_ProgramNoUniforms[PixelProgram] = true;
+		m_ProgramNoBuiltinUniforms[PixelProgram] = true;
+		m_ProgramOnlyUBOs[PixelProgram] = true;
+		m_ProgramUsesLightTableUBO[PixelProgram] = false;
+		m_ProgramUsesCameraUBO[PixelProgram] = false;
+		m_ProgramUsesObjectUBO[PixelProgram] = false;
+		m_ProgramUsesMaterialUBO[PixelProgram] = false;
+		return activePixelProgram(m_SunShadowDepthPP[0], true);
+	}
 
 	CPixelProgram *pp = m_MegaPP[0][fogOrPpl][cube][specular][ppClip][tableUBO][cameraUBO][objectUBO][materialUBO];
 	nlassert(pp);

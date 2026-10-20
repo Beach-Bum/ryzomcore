@@ -588,7 +588,7 @@ public:
 	// void					generateShaderDesc(CShaderDesc &desc, CMaterial &mat);
 	bool					setupBuiltinPrograms();
 	bool					setupBuiltinVertexProgram(CVertexProgram *effectiveVP, CPixelProgram *effectivePP);
-	bool					setupBuiltinPixelProgram(CPixelProgram *effectivePP);
+	bool					setupBuiltinPixelProgram(CPixelProgram *effectivePP, bool depthOnly);
 	bool					setupUniforms();
 	void					setupUniforms(TProgram program);
 	void					setupInitialUniforms(IProgram *program);
@@ -611,8 +611,8 @@ public:
 	bool					initMegaPixelPrograms();
 	bool					initMegaLinkedPrograms();
 	bool					setupMegaVertexProgram();
-	bool					setupMegaPixelProgram();
-	bool					setupMegaLinkedPrograms();
+	bool					setupMegaPixelProgram(bool depthOnly);
+	bool					setupMegaLinkedPrograms(bool depthOnly);
 	void					setupMegaVPUniforms();
 	void					setupMegaPPUniforms();
 
@@ -1685,11 +1685,22 @@ private:
 	// m_MegaLinked[fogOrPpl][hwClip][cube][specular][ppClip]
 	NLMISC::CSmartPtr<CShaderProgram> m_MegaLinked[2][2][2][2][2];
 
+	// Sun shadow caster pass: depth-only pixel program (empty main) used in place of the
+	// mega PP for opaque, non alpha-tested materials. The vertex stage stays the one the
+	// normal pass would use (mega VP, user/nelvp VP, insert VP) so skinning, landscape
+	// geomorph and water VPs keep working. [linked]: 0=SSO separable, 1=single-stage for linking.
+	NLMISC::CRefPtr<CPixelProgram> m_SunShadowDepthPP[2];
+	// Mega VP + depth PP linked pairs, built lazily: [fogOrPpl][hwClip]
+	NLMISC::CSmartPtr<CShaderProgram> m_MegaLinkedDepth[2][2];
+	bool initSunShadowDepthPrograms();
+	// True when the current draw should use the depth-only PP (caster pass, opaque material)
+	bool useSunShadowDepthOnlyPP() const;
+
 	// User VP/PP linked program helpers
 	CShaderProgram *linkPrograms(
 		IProgram *vpProg, const CProgramFeatures &vpFeatures,
 		IProgram *ppProg, const CProgramFeatures &ppFeatures);
-	bool setupUserLinkedPrograms(CVertexProgram *vpProg, CPixelProgram *ppProg);
+	bool setupUserLinkedPrograms(CVertexProgram *vpProg, CPixelProgram *ppProg, bool depthOnly);
 
 	// Whether the currently active VP outputs specularColor at VaryingLocationSpecularColor
 	bool m_VPSpecularOutput;
@@ -1822,6 +1833,10 @@ public:
 	// mutually exclusive by m_PPClipPlanes — the pass-level clip toggle)
 	NLMISC::CSmartPtr<CShaderProgram> LinkedVPMegaPP[2][2][2][2];
 
+	// Linked program cache for user VP + sun shadow depth-only PP
+	// Indexed by [hwClip] (only the VP stage varies: nelvp clip variant)
+	NLMISC::CSmartPtr<CShaderProgram> LinkedVPDepthPP[2];
+
 	// Linked program cache for mega VP + user PP combinations
 	// Indexed by [fogOrPpl][hwClip]
 	NLMISC::CSmartPtr<CShaderProgram> LinkedMegaVPPP[2][2];
@@ -1850,6 +1865,9 @@ public:
 	// Linked combos: insert mega VP + mega PP
 	// [fogOrPpl][cube][specular][ppClip]
 	NLMISC::CSmartPtr<CShaderProgram> InsertLinkedVPMegaPP[2][2][2][2];
+	// Linked combos: insert mega VP + sun shadow depth-only PP
+	// [fogOrPpl][hwClip]
+	NLMISC::CSmartPtr<CShaderProgram> InsertLinkedVPDepthPP[2][2];
 
 private:
 	GLuint programId;

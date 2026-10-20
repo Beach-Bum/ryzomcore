@@ -1314,18 +1314,23 @@ bool CDriverGL3::setupBuiltinPrograms()
 			return false;
 	}
 
+	// Sun shadow caster pass: opaque, non alpha-tested materials only need depth, so the
+	// mega PP is replaced by the trivial depth-only PP (same vertex stage). User/material
+	// PPs are kept as they are (they may discard).
+	bool depthOnly = !effectivePP && useSunShadowDepthOnlyPP();
+
 	// Pure mega linked path (no user/material programs)
 	if (m_LinkedMegaShaders && m_UseMegaShaders && !effectiveVP && !effectivePP)
 	{
 		m_NelvpActiveUB = nullptr;
-		return setupMegaLinkedPrograms()
+		return setupMegaLinkedPrograms(depthOnly)
 			&& setupUniforms();
 	}
 
 	// Try user/material linked path when at least one non-builtin program is set
 	if (m_LinkedMegaShaders && m_UseMegaShaders)
 	{
-		if (setupUserLinkedPrograms(effectiveVP, effectivePP))
+		if (setupUserLinkedPrograms(effectiveVP, effectivePP, depthOnly))
 			return setupUniforms();
 		// Fall through to SSO if linking not possible
 #ifdef USE_OPENGLES3
@@ -1334,7 +1339,7 @@ bool CDriverGL3::setupBuiltinPrograms()
 	}
 
 	return setupBuiltinVertexProgram(effectiveVP, effectivePP)
-		&& setupBuiltinPixelProgram(effectivePP)
+		&& setupBuiltinPixelProgram(effectivePP, depthOnly)
 		&& setupUniforms();
 }
 
@@ -1536,7 +1541,7 @@ bool CDriverGL3::setupBuiltinVertexProgram(CVertexProgram *effectiveVP, CPixelPr
 	return true;
 }
 
-bool CDriverGL3::setupBuiltinPixelProgram(CPixelProgram *effectivePP)
+bool CDriverGL3::setupBuiltinPixelProgram(CPixelProgram *effectivePP, bool depthOnly)
 {
 	if (effectivePP)
 	{
@@ -1556,7 +1561,7 @@ bool CDriverGL3::setupBuiltinPixelProgram(CPixelProgram *effectivePP)
 		return true;
 	}
 
-	if (m_UseMegaShaders) return setupMegaPixelProgram();
+	if (m_UseMegaShaders) return setupMegaPixelProgram(depthOnly);
 
 	if (!m_SupportSSO) return false;
 
@@ -2521,7 +2526,7 @@ CShaderProgram *CDriverGL3::linkPrograms(
 	return sp;
 }
 
-bool CDriverGL3::setupUserLinkedPrograms(CVertexProgram *vpProg, CPixelProgram *ppProg)
+bool CDriverGL3::setupUserLinkedPrograms(CVertexProgram *vpProg, CPixelProgram *ppProg, bool depthOnly)
 {
 	nlassert(vpProg || ppProg); // At least one must be set
 	nlassert(_CurrentMaterial);
@@ -2660,7 +2665,42 @@ bool CDriverGL3::setupUserLinkedPrograms(CVertexProgram *vpProg, CPixelProgram *
 
 	CShaderProgram *sp = nullptr;
 
-	if (vpIsInsert && !ppProg)
+	// Sun shadow caster pass, depth-only: pair the vertex stage with the empty PP.
+	// Only when no PP clip discard is needed (the depth PP has none) and the depth
+	// PP compiled; otherwise fall through to the normal mega PP pairing.
+	CPixelProgram *depthPP = (depthOnly && !ppClip && !ppProg) ? (CPixelProgram *)m_SunShadowDepthPP[1] : nullptr;
+	if (depthPP && !depthPP->m_DrvInfo)
+		depthPP = nullptr;
+
+	if (vpIsInsert && !ppProg && depthPP)
+	{
+		// Case: Insert VP + depth-only PP (inner VP varies by fogOrPpl and hwClip)
+		CProgramDrvInfosGL3 *vpDrv = static_cast<CProgramDrvInfosGL3 *>((IProgramDrvInfos *)vpProg->m_DrvInfo);
+		sp = vpDrv->InsertLinkedVPDepthPP[fogOrPpl][hwClip];
+		if (!sp)
+		{
+			CVertexProgram *innerVP = vpDrv->InsertMegaVP[1][fogOrPpl][hwClip];
+			if (!innerVP || !innerVP->m_DrvInfo) return false;
+			sp = linkPrograms(innerVP, innerVP->source()->Features,
+				depthPP, depthPP->source()->Features);
+			if (!sp) return false;
+			vpDrv->InsertLinkedVPDepthPP[fogOrPpl][hwClip] = sp;
+		}
+	}
+	else if (vpProg && !ppProg && depthPP)
+	{
+		// Case A-depth: User/Material VP + depth-only PP (VP stage varies by hwClip only)
+		CProgramDrvInfosGL3 *vpDrv = static_cast<CProgramDrvInfosGL3 *>((IProgramDrvInfos *)vpProg->m_DrvInfo);
+		sp = vpDrv->LinkedVPDepthPP[hwClip];
+		if (!sp)
+		{
+			sp = linkPrograms(vpStage, vpProg->source()->Features,
+				depthPP, depthPP->source()->Features);
+			if (!sp) return false;
+			vpDrv->LinkedVPDepthPP[hwClip] = sp;
+		}
+	}
+	else if (vpIsInsert && !ppProg)
 	{
 		// Case: Insert VP + Mega PP — use pre-compiled linked inner VP, link with mega PP.
 		// Cache is indexed by the combined clip axis: the inner VP varies by
@@ -2868,7 +2908,7 @@ bool CDriverGL3::initMegaLinkedPrograms()
 	return true;
 }
 
-bool CDriverGL3::setupMegaLinkedPrograms()
+bool CDriverGL3::setupMegaLinkedPrograms(bool depthOnly)
 {
 	nlassert(!m_UserVertexProgram);
 	nlassert(!m_UserPixelProgram);
@@ -2913,7 +2953,30 @@ bool CDriverGL3::setupMegaLinkedPrograms()
 	int cube = (matDrv->PPBuiltin.TexSamplerMode != 0) ? 1 : 0;
 	int specular = m_VPSpecularOutput ? 1 : 0;
 
-	CShaderProgram *sp = m_MegaLinked[fogOrPpl][hwClip][cube][specular][ppClip];
+	CShaderProgram *sp = nullptr;
+
+	// Sun shadow caster pass, depth-only: mega VP + empty PP, linked lazily per
+	// [fogOrPpl][hwClip]. Not when the PP must do the clip discard (ppClip).
+	if (depthOnly && !ppClip)
+	{
+		sp = m_MegaLinkedDepth[fogOrPpl][hwClip];
+		if (!sp)
+		{
+			CVertexProgram *vpProg = m_MegaVP[1][fogOrPpl][hwClip][1][1][1][1];
+			CPixelProgram *depthPP = m_SunShadowDepthPP[1];
+			if (vpProg && vpProg->m_DrvInfo && depthPP && depthPP->m_DrvInfo)
+			{
+				sp = linkPrograms(vpProg, vpProg->source()->Features,
+					depthPP, depthPP->source()->Features);
+				if (sp)
+					m_MegaLinkedDepth[fogOrPpl][hwClip] = sp;
+				else
+					nlwarning("GL3: Failed to link mega VP + sun shadow depth PP (fogOrPpl=%d, hwClip=%d)", fogOrPpl, hwClip);
+			}
+		}
+	}
+	if (!sp)
+		sp = m_MegaLinked[fogOrPpl][hwClip][cube][specular][ppClip];
 	nlassert(sp);
 	nlassert(sp->m_DrvInfo);
 
