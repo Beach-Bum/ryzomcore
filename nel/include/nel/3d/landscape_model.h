@@ -109,6 +109,11 @@ public:
 
 	/// Actual Clip and Render!! See Implementation for Why this scheme
 	void			clipAndRenderLandscape();
+	/** Depth-only landscape render for the sun shadow caster pass (CRenderTrav::renderSunShadowCascades()).
+	 *	Runs before the main opaque pass: does this frame's clip/refine once (clipAndRenderLandscape()
+	 *	then skips it), no vegetables, no tile add pass, no lighting updates.
+	 */
+	void			renderSunShadowCaster();
 
 
 	/// \name ShadowMap Behavior. Receive only
@@ -127,6 +132,8 @@ private:
 
 	bool	_ActiveAdditive;
 	float	_Additive;
+	// Scene render index for which clip()/refine() were already done (sun shadow caster pass)
+	uint64	_ClipRefineDoneForRender;
 
 	// The current small pyramid, for faster clip.
 	CPlane					CurrentPyramid[NL3D_TESSBLOCK_NUM_CLIP_PLANE];

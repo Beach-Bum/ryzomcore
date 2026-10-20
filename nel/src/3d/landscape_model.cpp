@@ -50,6 +50,7 @@ CLandscapeModel::CLandscapeModel()
 	Landscape.init();
 	_ActiveAdditive=false;
 	_Additive=1.f;
+	_ClipRefineDoneForRender= ~(uint64)0;
 
 	// The model is renderable
 	CTransform::setIsRenderable(true);
@@ -207,6 +208,7 @@ void	CLandscapeModel::clipAndRenderLandscape()
 	// Patches straddling the waterline keep their submerged part
 	// (TessBlock clipping has a fixed plane count).
 	float reflPlaneZ;
+	const bool clipRefineDone = (_ClipRefineDoneForRender == getOwnerScene()->getNumRender());
 	if (getOwnerScene()->getWaterReflectionManager().getRenderingReflectionPlaneZ(reflPlaneZ))
 	{
 		static std::vector<CPlane> reflPyramid;
@@ -219,8 +221,9 @@ void	CLandscapeModel::clipAndRenderLandscape()
 		reflPyramid.push_back(waterPlane);
 		Landscape.clip(refineCenter, reflPyramid);
 	}
-	else
+	else if(!clipRefineDone)
 	{
+		// The sun shadow caster pass may already have clipped for this render (same camera, same pyramid)
 		Landscape.clip(refineCenter, ClusteredPyramid);
 	}
 
@@ -282,7 +285,7 @@ void	CLandscapeModel::clipAndRenderLandscape()
 	// intermediate state (visible as per-eye reflection mismatch in the
 	// stereo debugger). The main render's tessellation shares the mirrored
 	// camera's XY position and serves the reflection by symmetry.
-	if (!inReflection)
+	if (!inReflection && !clipRefineDone)
 	{
 		H_BEFORE( NL3D_Landscape_Refine );
 		Landscape.refine(refineCenter);
@@ -302,6 +305,49 @@ void	CLandscapeModel::clipAndRenderLandscape()
 	H_AFTER( NL3D_Landscape_Render );
 
 	// Should be unlocked by render
+	nlassert (!Landscape.isLocked());
+}
+
+
+// ***************************************************************************
+void	CLandscapeModel::renderSunShadowCaster()
+{
+	H_AUTO( NL3D_Landscape_SunShadowCaster );
+	nlassert (!Landscape.isLocked());
+
+	CClipTrav		&clipTrav= getOwnerScene()->getClipTrav();
+	CRenderTrav		&renderTrav= getOwnerScene()->getRenderTrav();
+
+	// Same pyramid and refine centre as the main pass: the caster set is what the camera sees
+	CurrentPyramid[0]= clipTrav.WorldFrustumPyramid[NL3D_CLIP_PLANE_LEFT];
+	CurrentPyramid[1]= clipTrav.WorldFrustumPyramid[NL3D_CLIP_PLANE_RIGHT];
+	CurrentPyramid[2]= clipTrav.WorldFrustumPyramid[NL3D_CLIP_PLANE_TOP];
+	CurrentPyramid[3]= clipTrav.WorldFrustumPyramid[NL3D_CLIP_PLANE_BOTTOM];
+	Landscape.setDriver(renderTrav.getDriver());
+	CVector		refineCenter;
+	if(_RefineCenterAuto)
+		refineCenter= clipTrav.CamPos;
+	else
+		refineCenter= _RefineCenterUser;
+	clipTrav.getClusterVisibilityPosOverride(refineCenter);
+
+	Landscape.lockBuffers ();
+	// Clip + refine once per scene render: the first cascade does it, later cascades and the main pass reuse it
+	const uint64	numRender= getOwnerScene()->getNumRender();
+	if(_ClipRefineDoneForRender != numRender)
+	{
+		Landscape.clip(refineCenter, ClusteredPyramid);
+		Landscape.setPZBModelPosition(renderTrav.CamPos);
+		Landscape.refine(refineCenter);
+		_ClipRefineDoneForRender= numRender;
+	}
+	_RenderWorldMatrix.identity();
+	_RenderWorldMatrix.setPos(Landscape.getPZBModelPosition());
+	renderTrav.getDriver()->setupModelMatrix(_RenderWorldMatrix);
+
+	// Depth only: no tile add pass, no micro-vegetation (grass shadows are not worth a full re-render)
+	Landscape.setWaterReflectionClip(nullptr);
+	Landscape.render(refineCenter, renderTrav.CamLook, CurrentPyramid, false, false);
 	nlassert (!Landscape.isLocked());
 }
 

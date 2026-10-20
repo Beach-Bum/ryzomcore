@@ -869,7 +869,8 @@ void		CRenderTrav::renderSunShadowCascades()
 		// so the main pass flush does not render duplicates.
 		if( Scene->getCoarseMeshManager() )
 			Scene->getCoarseMeshManager()->flushRender(drv);
-		renderLandscapes();
+		// Depth-only landscape: shared clip/refine, no vegetables, no tile add pass
+		renderLandscapesSunShadowCaster();
 		clearRenderLandscapeList();
 
 		drv->endSunShadowCascade();
@@ -1970,6 +1971,15 @@ void			CRenderTrav::renderLandscapes()
 	for(uint i=0;i<_LandscapeRenderList.size();i++)
 	{
 		_LandscapeRenderList[i]->clipAndRenderLandscape();
+	}
+}
+
+// ***************************************************************************
+void			CRenderTrav::renderLandscapesSunShadowCaster()
+{
+	for(uint i=0;i<_LandscapeRenderList.size();i++)
+	{
+		_LandscapeRenderList[i]->renderSunShadowCaster();
 	}
 }
 

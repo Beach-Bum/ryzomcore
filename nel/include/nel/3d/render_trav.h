@@ -517,6 +517,8 @@ private:
 	void			clearRenderLandscapeList();
 	// render the landscapes
 	void			renderLandscapes();
+	// Depth-only landscape render for the sun shadow caster pass
+	void			renderLandscapesSunShadowCaster();
 
 	// A grow only list of landscapes to be rendered.
 	std::vector<CLandscapeModel*>	_LandscapeRenderList;
