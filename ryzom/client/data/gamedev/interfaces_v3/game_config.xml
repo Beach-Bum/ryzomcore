@@ -378,21 +378,22 @@
 			-->
 			<instance template="tgcw_checkbox" id="shadow" text="uiFxShadow" posparent="maxpoly" posref="BL TL" x="-20" y="-12" />
 			<instance template="tgcw_scrollbarint" id="shadow_quality" text="uigcFxShadowQuality" posparent="shadow" posref="BL TL" x="20" y="-2" />
-			<instance template="tgcw_checkbox" id="fxaa" text="uiFXAA" posparent="shadow_quality" posref="BL TL" x="-20" y="-12" />
-			<group id="anisotropic_gr" posparent="fxaa" sizeparent="parent" sizeref="w" h="20" posref="BL TL" x="0" y="-12">
+			<instance template="tgcw_scrollbarint" id="ao" text="uigcFxAmbientOcclusion" posparent="shadow_quality" posref="BL TL" x="0" y="-2" />
+			<instance template="tgcw_scrollbarint" id="aa" text="uigcFxAntiAliasing" posparent="ao" posref="BL TL" x="0" y="-2" />
+			<group id="anisotropic_gr" posparent="aa" sizeparent="parent" sizeref="w" h="20" posref="BL TL" x="0" y="-12">
 				<view type="text" id="text" posref="TL TL" x="0" y="-4" color="255 255 255 192" fontsize="12" shadow="true" hardtext="uigcFxAnisotropicFilter" />
 				<group type="combo_box" id="anisotropic" w="70" h="20" value="UI:TEMP:ANISOTROPIC" posref="MR ML" posparent="text" x="4" y="0">
 					<instance template="combo_box_def1" />
 				</group>
 				<link expr="@UI:TEMP:ANISOTROPIC" action="game_config_change_anisotropic" />
 			</group>
-			<group id="bloom_gr" posparent="anisotropic_gr" sizeparent="parent" sizeref="w" h="100" posref="BL TL" x="0" y="-12"
+			<group id="bloom_gr" posparent="anisotropic_gr" sizeparent="parent" sizeref="w" h="50" posref="BL TL" x="0" y="-12"
 				tooltip="uiFxTooltipBloom" tooltip_parent="win">
 				<instance template="tgcw_checkbox" id="bloom" text="uiFxBloom" posref="TL TL" x="0" y="0" />
-				<instance template="tgcw_checkbox" id="square_bloom" text="uiFxSquareBloom" posparent="bloom" posref="BL TL" x="20" y="-2" />
-				<instance template="tgcw_scrollbarfloat" id="density_bloom" text="uiFxDensityBloom" posparent="square_bloom" posref="BL TL" x="0" y="-2" />
+				<instance template="tgcw_scrollbarfloat" id="bloom_intensity" text="uigcFxBloomIntensity" posparent="bloom" posref="BL TL" x="20" y="-2" />
 			</group>
-			<instance template="tgcw_scrollbarint" id="water_refl" text="uiFxMaxWaterReflections" posparent="bloom_gr" posref="BL TL" x="20" y="-12" />
+			<instance template="tgcw_scrollbarint" id="render_scale" text="uigcFxRenderScale" posparent="bloom_gr" posref="BL TL" x="20" y="-12" />
+			<instance template="tgcw_scrollbarint" id="water_refl" text="uiFxMaxWaterReflections" posparent="render_scale" posref="BL TL" x="0" y="-2" />
 			<instance template="tgcw_scrollbarint" id="water_refl_tex" text="uiFxMaxWaterReflectionTextures" posparent="water_refl" posref="BL TL" x="0" y="-2" />
 		</group>
 		<ctrl style="skin_scroll" id="sb_fx" align="T" target="fx" posparent="crop" posref="TL TR" x="-8" y="0" />
@@ -783,11 +784,12 @@
 			<param ui="fx:cup:c" type="cfg" widget="sbint" realtime="true" ui_view="fx:cup:c_res" link="CloudUpdate" preset="UI:TEMP:PRESET_FX" />
 			<param ui="fx:shadow:c" type="cfg" widget="boolbut" realtime="true" link="Shadows" preset="UI:TEMP:PRESET_FX" />
 			<param ui="fx:shadow_quality:c" type="cfg" widget="sbint" realtime="true" ui_view="fx:shadow_quality:c_res" link="ShadowQuality" preset="UI:TEMP:PRESET_FX" />
-			<param ui="fx:fxaa:c" type="cfg" widget="boolbut" realtime="true" link="FXAA" preset="UI:TEMP:PRESET_FX" />
+			<param ui="fx:ao:c" type="cfg" widget="sbint" realtime="true" ui_view="fx:ao:c_res" link="AmbientOcclusion" preset="UI:TEMP:PRESET_FX" />
+			<param ui="fx:aa:c" type="cfg" widget="sbint" realtime="true" ui_view="fx:aa:c_res" link="AntiAliasing" preset="UI:TEMP:PRESET_FX" />
 			<param ui="fx:anisotropic_gr:anisotropic:c" type="db" widget="boolbut" realtime="true" link="UI:TEMP:ANISOTROPIC" />
 			<param ui="fx:bloom_gr:bloom:c" type="cfg" widget="boolbut" realtime="true" link="Bloom" preset="UI:TEMP:PRESET_FX" />
-			<param ui="fx:bloom_gr:square_bloom:c" type="cfg" widget="boolbut" realtime="true" link="SquareBloom" preset="UI:TEMP:PRESET_FX" />
-			<param ui="fx:bloom_gr:density_bloom:c" type="cfg" widget="sbfloat_round" realtime="true" ui_view="fx:bloom_gr:density_bloom:c_res" link="DensityBloom" preset="UI:TEMP:PRESET_FX" />
+			<param ui="fx:bloom_gr:bloom_intensity:c" type="cfg" widget="sbfloat_round" realtime="true" ui_view="fx:bloom_gr:bloom_intensity:c_res" link="BloomIntensity" preset="UI:TEMP:PRESET_FX" />
+			<param ui="fx:render_scale:c" type="cfg" widget="sbint" realtime="true" ui_view="fx:render_scale:c_res" link="RenderScale" preset="UI:TEMP:PRESET_FX" />
 			<param ui="fx:water_refl:c" type="cfg" widget="sbint" realtime="true" ui_view="fx:water_refl:c_res" link="MaxWaterReflections" preset="UI:TEMP:PRESET_FX" />
 			<param ui="fx:water_refl_tex:c" type="cfg" widget="sbint" realtime="true" ui_view="fx:water_refl_tex:c_res" link="MaxWaterReflectionTextures" />
 
