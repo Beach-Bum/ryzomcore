@@ -529,6 +529,7 @@ CClientConfig::CClientConfig()
 
 	Shadows				= true;						// Draw Shadows by default.
 	ShadowQuality		= 2;							// Sun cascaded shadow maps: medium tier by default (opengl3 only; no-op elsewhere).
+	ShadowMaxCasterSize	= 40.f;						// Root arches / canopy spans wider than this do not cast sun shadows.
 	ShadowsClipFar		= 10.f;						// Shadows are disabled after this distance.
 	ShadowsLodDist		= 3.f;						// Shadows draw with just 1 part after this distance.
 	ShadowZDirClampLandscape	= -0.5f;			// On landscape, allow a minimum Phi angle of -30 degrees
@@ -1568,6 +1569,8 @@ void CClientConfig::setValues()
 	READ_BOOL_FV(Shadows)
 	// ShadowQuality : sun cascaded shadow map tier (0 = off, 1..3 = low/medium/high)
 	READ_INT_FV(ShadowQuality)
+	// ShadowMaxCasterSize : largest horizontal footprint (m) that still casts a sun shadow (0 = no limit)
+	READ_FLOAT_FV(ShadowMaxCasterSize)
 	// ShadowsClipFar : Get Shadows Clip Far.
 	READ_FLOAT_DEV(ShadowsClipFar)
 	// ShadowsLodDist : Get Shadows Lod Distance.

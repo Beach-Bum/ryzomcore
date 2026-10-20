@@ -649,6 +649,12 @@ public:
 	 */
 	void			setSunShadowQuality(uint quality);
 	uint			getSunShadowQuality() const {return _SunShadowQuality;}
+	/** Largest horizontal footprint (metres, world bbox) a mesh may have and still cast a sun shadow.
+	 *	0 = no limit (default). Sky-scale geometry (root arches, canopy spans) above the limit does not
+	 *	cast, so the play area is not covered by one moving dark shape. Skeletons are never limited.
+	 */
+	void			setSunShadowMaxCasterSize(float meters) {_SunShadowMaxCasterSize= meters > 0.f ? meters : 0.f;}
+	float			getSunShadowMaxCasterSize() const {return _SunShadowMaxCasterSize;}
 	// @}
 
 	void			setWaterCallback(IWaterSurfaceAddedCallback *wcb) { _WaterCallback = wcb; }
@@ -856,6 +862,7 @@ private:
 
 	// Sun cascaded shadow maps quality tier (0 = off)
 	uint			_SunShadowQuality;
+	float			_SunShadowMaxCasterSize;
 
 	// GPU Skinning
 	bool			_GPUSkinningEnabled;

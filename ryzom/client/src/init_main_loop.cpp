@@ -653,6 +653,7 @@ void initMainLoop()
 
 		// sun cascaded shadow maps (0 = off; no-op on drivers without support; the scene clamps to 0..3)
 		Scene->setSunShadowQuality((uint)std::max(ClientCfg.ShadowQuality, (sint)0));
+		Scene->setSunShadowMaxCasterSize(ClientCfg.ShadowMaxCasterSize);
 
 		// setup load balancing
 		Scene->setPolygonBalancingMode(UScene::PolygonBalancingClamp);

@@ -646,6 +646,9 @@ public:
 	 */
 	virtual	void			setSunShadowQuality(uint quality) =0;
 	virtual	uint			getSunShadowQuality() const =0;
+	/// Largest horizontal footprint (metres) of a mesh that still casts a sun shadow; 0 = no limit.
+	virtual	void			setSunShadowMaxCasterSize(float meters) =0;
+	virtual	float			getSunShadowMaxCasterSize() const =0;
 	// @}
 
 	// set a callback to know when a water surface is instantiated

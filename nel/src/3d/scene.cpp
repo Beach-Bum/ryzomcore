@@ -189,6 +189,7 @@ CScene::CScene(bool bSmallScene) : LightTrav(bSmallScene)
 	_ShadowMapMaxCasterAround= NL3D_SCENE_DEFAULT_SHADOW_MAP_MAX_CASTER_AROUND;
 	_VisualCollisionManagerForShadow = nullptr;
 	_SunShadowQuality = 0;
+	_SunShadowMaxCasterSize = 0.f;
 
 	_GPUSkinningEnabled = true;
 

@@ -106,6 +106,7 @@ CRenderTrav::CRenderTrav()
 	_FirstWaterModel = nullptr;
 	_SunShadowStrength= 1.f;
 	_SunShadowCullActive= false;
+	_SunShadowMaxCasterSize= 0.f;
 	_SunShadowCullLightView.identity();
 	for(uint i= 0; i < 6; ++i)
 		_SunShadowCullBox[i]= 0.f;
@@ -654,6 +655,15 @@ bool		CRenderTrav::sunShadowCasterInCascade(CTransform *tr) const
 		if(localBB.getHalfSize() == CVector::Null)
 			return true;
 		worldBB= CAABBox::transformAABBox(tr->getWorldMatrix(), localBB);
+		// Sky-scale geometry (root arches, canopy spans) does not cast: its shadow would cover the
+		// whole play area as one moving dark shape (WoW-style readability over physical correctness).
+		// Horizontal footprint test, so tall-but-narrow trees and buildings still cast.
+		if(_SunShadowMaxCasterSize > 0.f)
+		{
+			const CVector	&hs= worldBB.getHalfSize();
+			if(std::max(hs.x, hs.y) * 2.f > _SunShadowMaxCasterSize)
+				return false;
+		}
 	}
 	else
 		return true;
@@ -698,6 +708,7 @@ void		CRenderTrav::renderSunShadowCascades()
 
 	// Quality tiers: cascades, map size, PCF kernel, max distance
 	uint	quality= std::min(Scene->getSunShadowQuality(), 3u);
+	_SunShadowMaxCasterSize= Scene->getSunShadowMaxCasterSize();
 	uint	numCascades, mapSize, pcfTaps;
 	float	maxDist;
 	switch(quality)

@@ -303,6 +303,8 @@ public:
 	// @{
 	virtual	void			setSunShadowQuality(uint quality) NL_OVERRIDE;
 	virtual	uint			getSunShadowQuality() const NL_OVERRIDE;
+	virtual	void			setSunShadowMaxCasterSize(float meters) NL_OVERRIDE;
+	virtual	float			getSunShadowMaxCasterSize() const NL_OVERRIDE;
 	// @}
 
 	void						setWaterCallback(IWaterSurfaceAddedCallback *wcb) NL_OVERRIDE;

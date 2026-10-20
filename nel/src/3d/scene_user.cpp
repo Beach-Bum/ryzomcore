@@ -1050,6 +1050,18 @@ uint			CSceneUser::getSunShadowQuality() const
 }
 
 // ***************************************************************************
+void			CSceneUser::setSunShadowMaxCasterSize(float meters)
+{
+	_Scene.setSunShadowMaxCasterSize(meters);
+}
+
+// ***************************************************************************
+float			CSceneUser::getSunShadowMaxCasterSize() const
+{
+	return _Scene.getSunShadowMaxCasterSize();
+}
+
+// ***************************************************************************
 uint			CSceneUser::getShadowMapBlurSize() const
 {
 	return _Scene.getShadowMapBlurSize();

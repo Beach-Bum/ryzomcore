@@ -453,6 +453,8 @@ struct CClientConfig
 	bool			Shadows;
 	/// Sun cascaded shadow map quality: 0 = off, 1..3 = low/medium/high (OpenGL3 driver only).
 	sint			ShadowQuality;
+	/// Meshes with a horizontal footprint above this (metres) do not cast sun shadows; 0 = no limit.
+	float			ShadowMaxCasterSize;
 	/// Shadows are disabled after this distance.
 	float			ShadowsClipFar;
 	/// Shadows draw with just 1 part after this distance.
