@@ -1675,7 +1675,8 @@ bool mainLoop()
 			// Engine phase of E1-3: drive the GL3 post stack from the existing cfg vars
 			// (FXAA -> AntiAliasing 2, Bloom -> bloom on at intensity 0.35). The client phase
 			// replaces this with AmbientOcclusion / AntiAliasing / BloomIntensity / RenderScale.
-			PostStack->setQuality(0, ClientCfg.FXAA ? 2 : 0, ClientCfg.Bloom, 0.35f, 100, 0.3f, 1.0f);
+			// TEMP (part B check): AO forced to tier 2 until ClientCfg.AmbientOcclusion exists.
+			PostStack->setQuality(2, ClientCfg.FXAA ? 2 : 0, ClientCfg.Bloom, 0.35f, 100, 0.3f, 1.0f);
 		}
 		bool haveEffects = Render && Driver->getPolygonMode() == UDriver::Filled
 			&& Driver->supportBloomEffect()
