@@ -143,6 +143,7 @@ namespace NL3D {
 CFXAA::CFXAA(NL3D::UDriver *driver) : m_Driver(driver), m_VP(nullptr)
     , m_PP(nullptr)
     , m_Width(~0), m_Height(~0)
+    , m_Subpix(0.75f), m_EdgeThreshold(0.166f), m_EdgeThresholdMin(0.0833f)
 {
 	nldebug("3D: Create FXAA");
 
@@ -332,6 +333,13 @@ CFXAA::~CFXAA()
 	m_Driver = nullptr;
 }
 
+void CFXAA::setQuality(float subpix, float edgeThreshold, float edgeThresholdMin)
+{
+	m_Subpix = subpix;
+	m_EdgeThreshold = edgeThreshold;
+	m_EdgeThresholdMin = edgeThresholdMin;
+}
+
 void CFXAA::applyEffect()
 {
 	if (!m_PP)
@@ -409,9 +417,9 @@ void CFXAA::applyEffect()
 	{
 		s_FXAAUB->lock();
 		s_FXAAUB->set(s_FXAAUBOOffsets.RcpFrame, 1.0f / fwidth, 1.0f / fheight);
-		s_FXAAUB->set(s_FXAAUBOOffsets.Subpix, 0.75f);
-		s_FXAAUB->set(s_FXAAUBOOffsets.EdgeThreshold, 0.166f);
-		s_FXAAUB->set(s_FXAAUBOOffsets.EdgeThresholdMin, 0.0833f);
+		s_FXAAUB->set(s_FXAAUBOOffsets.Subpix, m_Subpix);
+		s_FXAAUB->set(s_FXAAUBOOffsets.EdgeThreshold, m_EdgeThreshold);
+		s_FXAAUB->set(s_FXAAUBOOffsets.EdgeThresholdMin, m_EdgeThresholdMin);
 		s_FXAAUB->unlock();
 		drv->bindUniformBuffer(UBBindingPixelProgram, s_FXAAUB);
 	}
@@ -419,9 +427,9 @@ void CFXAA::applyEffect()
 	{
 		const CPixelProgramFXAA::CIdx &ppIdx = static_cast<CPixelProgramFXAA *>(m_PP)->idx();
 		drv->setUniform2f(IDriver::PixelProgram, ppIdx.RcpFrame, 1.0f / fwidth, 1.0f / fheight);
-		drv->setUniform1f(IDriver::PixelProgram, ppIdx.Subpix, 0.75f);
-		drv->setUniform1f(IDriver::PixelProgram, ppIdx.EdgeThreshold, 0.166f);
-		drv->setUniform1f(IDriver::PixelProgram, ppIdx.EdgeThresholdMin, 0.0833f);
+		drv->setUniform1f(IDriver::PixelProgram, ppIdx.Subpix, m_Subpix);
+		drv->setUniform1f(IDriver::PixelProgram, ppIdx.EdgeThreshold, m_EdgeThreshold);
+		drv->setUniform1f(IDriver::PixelProgram, ppIdx.EdgeThresholdMin, m_EdgeThresholdMin);
 	}
 
 	if (!vpUBO)

@@ -572,6 +572,8 @@ SOURCE_GROUP(Fx\\2d FILES
         fxaa.cpp
         fxaa_program.h
         ../../include/nel/3d/fxaa.h
+        post_stack.cpp
+        ../../include/nel/3d/post_stack.h
         deform_2d.cpp
         ../../include/nel/3d/deform_2d.h
         heat_haze.cpp

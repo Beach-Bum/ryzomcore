@@ -60,6 +60,13 @@ public:
 	/// Apply effect to current render target. Render target must be managed by render target manager
 	virtual void applyEffect();
 
+	/// True when a pixel/vertex program compiled (otherwise applyEffect is a no-op)
+	bool isSupported() const { return m_PP != nullptr && m_VP != nullptr; }
+
+	/// FXAA 3.11 quality parameters (fxaaQualitySubpix, fxaaQualityEdgeThreshold, fxaaQualityEdgeThresholdMin).
+	/// Defaults 0.75 / 0.166 / 0.0833 (high); low tier 0.5 / 0.25 / 0.0833.
+	void setQuality(float subpix, float edgeThreshold, float edgeThresholdMin);
+
 private:
 	UDriver *m_Driver;
 
@@ -71,6 +78,10 @@ private:
 
 	uint m_Width;
 	uint m_Height;
+
+	float m_Subpix;
+	float m_EdgeThreshold;
+	float m_EdgeThresholdMin;
 
 }; /* class CFXAA */
 
