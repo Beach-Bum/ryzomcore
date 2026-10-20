@@ -105,6 +105,10 @@ CRenderTrav::CRenderTrav()
 	_LayersRenderingOrder= true;
 	_FirstWaterModel = nullptr;
 	_SunShadowStrength= 1.f;
+	_SunShadowCullActive= false;
+	_SunShadowCullLightView.identity();
+	for(uint i= 0; i < 6; ++i)
+		_SunShadowCullBox[i]= 0.f;
 }
 
 
@@ -565,6 +569,10 @@ void		CRenderTrav::renderOpaqueList(bool shadowCasterPass)
 				CLandscapeModel *landscape = shadowCasterPass ? dynamic_cast<CLandscapeModel *>(tr) : nullptr;
 				if(landscape)
 					addRenderLandscape(landscape);
+				else if(shadowCasterPass && !sunShadowCasterInCascade(tr))
+				{
+					// Caster entirely outside this cascade's light box: skip
+				}
 				else
 					tr->traverseRender();
 				OrderOpaqueList.next();
@@ -596,6 +604,10 @@ void		CRenderTrav::renderOpaqueList(bool shadowCasterPass)
 			CLandscapeModel *landscape = shadowCasterPass ? dynamic_cast<CLandscapeModel *>(tr) : nullptr;
 			if(landscape)
 				addRenderLandscape(landscape);
+			else if(shadowCasterPass && !sunShadowCasterInCascade(tr))
+			{
+				// Caster entirely outside this cascade's light box: skip
+			}
 			else
 				tr->traverseRender();
 			OrderOpaqueList.next();
@@ -608,6 +620,64 @@ void		CRenderTrav::renderOpaqueList(bool shadowCasterPass)
 		Lods are usually far objects.
 	*/
 	MeshBlockManager.flush(Driver, Scene, this);
+}
+
+// ***************************************************************************
+bool		CRenderTrav::sunShadowCasterInCascade(CTransform *tr) const
+{
+	if(!_SunShadowCullActive || !tr)
+		return true;
+
+	// World bounding box of the caster. When there is none, render (never cull a model we
+	// cannot test).
+	CAABBox	worldBB;
+	if(tr->isSkeleton())
+	{
+		// Bones + sticked objects, in world space (the shape bbox of a skeleton is meaningless)
+		CSkeletonModel	*skel= static_cast<CSkeletonModel *>(tr);
+		if(!skel->computeWorldBBoxForShadow(worldBB))
+			return true;
+	}
+	else if(tr->isTransformShape())
+	{
+		CAABBox	localBB;
+		static_cast<CTransformShape *>(tr)->getAABBox(localBB);
+		if(localBB.getHalfSize() == CVector::Null)
+			return true;
+		worldBB= CAABBox::transformAABBox(tr->getWorldMatrix(), localBB);
+	}
+	else
+		return true;
+
+	// Extent of the box in light space (PZB-relative like the cascade box)
+	CVector	bmin= worldBB.getMin() - CamPos;
+	CVector	bmax= worldBB.getMax() - CamPos;
+	CVector	lmin, lmax;
+	for(uint k= 0; k < 8; ++k)
+	{
+		CVector	corner((k & 1) ? bmax.x : bmin.x, (k & 2) ? bmax.y : bmin.y, (k & 4) ? bmax.z : bmin.z);
+		CVector	p= _SunShadowCullLightView.mulVector(corner);
+		if(k == 0)
+		{
+			lmin= lmax= p;
+		}
+		else
+		{
+			lmin.minof(lmin, p);
+			lmax.maxof(lmax, p);
+		}
+	}
+
+	// Light space: x right, z up, y along the light. Outside left/right/bottom/top: no texel
+	// touched. Entirely beyond the far plane: behind every receiver of this cascade. Entirely
+	// in front of the near plane: clipped by the rasteriser anyway.
+	if(lmax.x < _SunShadowCullBox[0] || lmin.x > _SunShadowCullBox[1])
+		return false;
+	if(lmax.z < _SunShadowCullBox[2] || lmin.z > _SunShadowCullBox[3])
+		return false;
+	if(lmin.y > _SunShadowCullBox[5] || lmax.y < _SunShadowCullBox[4])
+		return false;
+	return true;
 }
 
 // ***************************************************************************
@@ -740,6 +810,16 @@ void		CRenderTrav::renderSunShadowCascades()
 		drv->setFrustum(oLeft, oRight, oBottom, oTop, oNear, oFar, false);
 		drv->setupViewMatrixEx(lightView, CamPos);
 
+		// Per-cascade caster culling against this light box (landscape always renders)
+		_SunShadowCullLightView= lightView;
+		_SunShadowCullBox[0]= oLeft;
+		_SunShadowCullBox[1]= oRight;
+		_SunShadowCullBox[2]= oBottom;
+		_SunShadowCullBox[3]= oTop;
+		_SunShadowCullBox[4]= oNear;
+		_SunShadowCullBox[5]= oFar;
+		_SunShadowCullActive= true;
+
 		clearRenderLandscapeList();
 		CLodCharacterManager	*clodMngr= Scene->getLodCharacterManager();
 		if(clodMngr)
@@ -748,6 +828,7 @@ void		CRenderTrav::renderSunShadowCascades()
 		renderOpaqueList(true);
 		if(clodMngr)
 			clodMngr->endRender();
+		_SunShadowCullActive= false;
 		// Coarse meshes are (re)added during the opaque traversal; flush them here as casters
 		// so the main pass flush does not render duplicates.
 		if( Scene->getCoarseMeshManager() )

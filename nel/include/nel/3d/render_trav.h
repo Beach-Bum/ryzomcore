@@ -407,6 +407,14 @@ private:
 	void			renderOpaqueList(bool shadowCasterPass);
 	// Colour multiplier in shadow for this frame: lum(SunAmbient) / lum(SunAmbient + SunDiffuse)
 	float			_SunShadowStrength;
+	/** Per-cascade caster culling: false only when the model's world bounding box is entirely
+	 *	outside the current cascade light box (x/z outside the ortho bounds, or beyond the far
+	 *	plane). Models without a usable bounding box are always rendered.
+	 */
+	bool			sunShadowCasterInCascade(CTransform *tr) const;
+	bool			_SunShadowCullActive;
+	NLMISC::CMatrix	_SunShadowCullLightView;	// PZB-relative world -> light space (rotation only)
+	float			_SunShadowCullBox[6];		// left, right, bottom, top, near, far (light space)
 	// @}
 
 	// A grow only list of models to be rendered.
