@@ -2372,6 +2372,25 @@ void CDriverGL3::setupInitialUniforms(IProgram *program)
 			}
 		}
 
+		// Post-processing scene depth sampler: reserved unit below the shadow unit, set once at link
+		{
+			sint depthUnit = getPostDepthTextureUnit();
+			if (depthUnit >= 0)
+			{
+				GLint depthLoc = nglGetUniformLocation(id, "nlSceneDepth");
+				if (depthLoc >= 0)
+				{
+#ifdef USE_OPENGLES3
+					nglUseProgram(id);
+					glUniform1i(depthLoc, depthUnit);
+					nglUseProgram(0);
+#else
+					nglProgramUniform1i(id, depthLoc, depthUnit);
+#endif
+				}
+			}
+		}
+
 		// Resolve and cache NlLightTable UBO block index, bind to its binding point
 		GLuint lightTableBlock = nglGetUniformBlockIndex(id, "NlLightTable");
 		drvInfo->setLightTableBlockIndex(lightTableBlock);

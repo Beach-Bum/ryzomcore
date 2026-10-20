@@ -1505,6 +1505,20 @@ public:
 	virtual void			setSunShadowReceive(bool enable, float strength) {}
 	// @}
 
+	/// \name Post-processing scene depth (optional; default implementations are no-ops so legacy drivers are untouched)
+	// @{
+	/// True if offscreen render targets own a sampleable depth-stencil texture (GL3: CDepthStencilFBO as GL_TEXTURE_2D).
+	virtual bool			supportRenderTargetDepthTexture() const { return false; }
+	/** Bind the depth-stencil texture attached to an offscreen render target on the driver's reserved
+	 *	scene-depth sampler unit. Pixel programs declare it as `uniform sampler2D nlSceneDepth;` (bound once
+	 *	at link, like nlSunShadowMap); the red channel holds the non-linear [0,1] depth.
+	 *	Pass NULL to unbind. Sampling it while a target sharing that depth buffer is the active render
+	 *	target is a feedback loop: passes that read it must render into colour-only targets.
+	 *	\return false if unsupported or the target has no depth-stencil attachment yet.
+	 */
+	virtual bool			bindRenderTargetDepthTexture(ITexture *renderTarget) { return false; }
+	// @}
+
 	// Adapter class
 	class CAdapter
 	{

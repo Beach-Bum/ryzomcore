@@ -339,6 +339,7 @@ CDriverGL3::CDriverGL3()
 	_CameraUBODirty = true;
 	_CameraUBOUploadDirty = false;
 	_CameraUBOCapacity = 0;
+	_PostDepthBoundTexId = 0;
 	_SunShadowTexId = 0;
 	for (uint i = 0; i < NL_OPENGL3_MAX_SUN_SHADOW_CASCADES; ++i)
 	{

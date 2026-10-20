@@ -92,22 +92,30 @@ CTextureDrvInfosGL3::~CTextureDrvInfosGL3()
 
 CDepthStencilFBO::CDepthStencilFBO(CDriverGL3 *driver, uint width, uint height)
 {
-	nldebug("3D: Init shared FBO");
+	nldebug("3D: Init shared depth-stencil texture (%u x %u)", width, height);
 
 	m_Driver = driver;
 	Width = width;
 	Height = height;
+	DepthTexId = 0;
 
-	// GL 3.3 core: always use packed depth-stencil.
-	// GL_RENDERBUFFER is a setup-only binding point: bind to allocate storage via
-	// nglRenderbufferStorage, then reference by ID in nglFramebufferRenderbuffer.
-	// It is never read or depended on during rendering, so not tracked in the state cache.
-	nglGenRenderbuffers(1, &DepthFBOId);
-	StencilFBOId = DepthFBOId;
-	nglBindRenderbuffer(GL_RENDERBUFFER, DepthFBOId);
-	nglRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, width, height);
-
-	nlassert(DepthFBOId);
+	// GL 3.3 core: packed depth-stencil as a GL_TEXTURE_2D so post-processing passes can sample
+	// the scene depth (nlSceneDepth). Allocated through a unit outside the CDriverGLStates3 per-unit
+	// cache (the topmost one), then unbound, so the cache stays coherent.
+	glGenTextures(1, &DepthTexId);
+	nlassert(DepthTexId);
+	GLint scratchUnit = std::max((GLint)IDRV_PROGRAM_MAXSAMPLERS, driver->_Extensions.MaxFragmentTextureImageUnits - 1);
+	nglActiveTexture(GL_TEXTURE0 + scratchUnit);
+	glBindTexture(GL_TEXTURE_2D, DepthTexId);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH24_STENCIL8, width, height, 0, GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8, nullptr);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_NONE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
+	glBindTexture(GL_TEXTURE_2D, 0);
+	nglActiveTexture(GL_TEXTURE0 + driver->_DriverGLStates.getActiveTexture());
 
 	driver->_DepthStencilFBOs.push_back(this);
 }
@@ -117,13 +125,72 @@ CDepthStencilFBO::~CDepthStencilFBO()
 	// driver remove
 	m_Driver->_DepthStencilFBOs.erase(std::find(m_Driver->_DepthStencilFBOs.begin(), m_Driver->_DepthStencilFBOs.end(), this));
 
-	if (DepthFBOId)
+	if (DepthTexId)
 	{
-		nldebug("3D: Release shared FBO");
-		nglDeleteRenderbuffers(1, &DepthFBOId);
-		DepthFBOId = 0;
-		StencilFBOId = 0;
+		nldebug("3D: Release shared depth-stencil texture");
+		if (m_Driver->_PostDepthBoundTexId == DepthTexId)
+			m_Driver->bindPostDepthTexture(0);
+		glDeleteTextures(1, &DepthTexId);
+		DepthTexId = 0;
 	}
+}
+
+// ***************************************************************************
+static inline CTextureDrvInfosGL3* getTextureGl(ITexture& tex); // defined below
+
+// ***************************************************************************
+sint CDriverGL3::getPostDepthTextureUnit() const
+{
+	// One unit below the sun shadow sampler, still above the material sampler range [0, IDRV_PROGRAM_MAXSAMPLERS)
+	sint shadowUnit = getSunShadowTextureUnit();
+	if (shadowUnit < 0)
+		return -1;
+	sint unit = shadowUnit - 1;
+	if (unit < (sint)IDRV_PROGRAM_MAXSAMPLERS)
+		return -1;
+	return unit;
+}
+
+// ***************************************************************************
+bool CDriverGL3::supportRenderTargetDepthTexture() const
+{
+	return _Extensions.GLCore && getPostDepthTextureUnit() >= 0;
+}
+
+// ***************************************************************************
+void CDriverGL3::bindPostDepthTexture(GLuint texId)
+{
+	sint unit = getPostDepthTextureUnit();
+	if (unit < 0)
+		return;
+	if (_PostDepthBoundTexId == texId)
+		return;
+	// The reserved unit is outside the CDriverGLStates3 per-unit cache; talk to
+	// GL directly and put the active unit back where the cache believes it is.
+	nglActiveTexture(GL_TEXTURE0 + unit);
+	glBindTexture(GL_TEXTURE_2D, texId);
+	nglActiveTexture(GL_TEXTURE0 + _DriverGLStates.getActiveTexture());
+	_PostDepthBoundTexId = texId;
+}
+
+// ***************************************************************************
+bool CDriverGL3::bindRenderTargetDepthTexture(ITexture *renderTarget)
+{
+	H_AUTO_OGL(CDriverGL3_bindRenderTargetDepthTexture)
+	if (!supportRenderTargetDepthTexture())
+		return false;
+	if (!renderTarget)
+	{
+		bindPostDepthTexture(0);
+		return true;
+	}
+	if (!renderTarget->TextureDrvShare)
+		return false;
+	CTextureDrvInfosGL3 *gltext = getTextureGl(*renderTarget);
+	if (!gltext || !gltext->InitFBO || !gltext->DepthStencilFBO || !gltext->DepthStencilFBO->DepthTexId)
+		return false;
+	bindPostDepthTexture(gltext->DepthStencilFBO->DepthTexId);
+	return true;
 }
 
 // ***************************************************************************
@@ -160,9 +227,9 @@ bool CTextureDrvInfosGL3::initFrameBufferObject(ITexture * tex)
 				DepthStencilFBO = new CDepthStencilFBO(_Driver, tex->getWidth(), tex->getHeight());
 			}
 
-			// GL 3.3 core: use GL_DEPTH_STENCIL_ATTACHMENT for packed depth-stencil
-			nglFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT,
-				GL_RENDERBUFFER, DepthStencilFBO->DepthFBOId);
+			// GL 3.3 core: packed depth-stencil texture on GL_DEPTH_STENCIL_ATTACHMENT (sampleable by post passes)
+			nglFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT,
+				GL_TEXTURE_2D, DepthStencilFBO->DepthTexId, 0);
 		}
 
 		// check status

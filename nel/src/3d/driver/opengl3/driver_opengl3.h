@@ -191,8 +191,9 @@ public:
 	uint					Width;
 	uint					Height;
 
-	GLuint					DepthFBOId;
-	GLuint					StencilFBOId;
+	// Packed GL_DEPTH24_STENCIL8 GL_TEXTURE_2D, attached with glFramebufferTexture2D(GL_DEPTH_STENCIL_ATTACHMENT)
+	// and shared by every offscreen target of this size. Sampleable by post passes (bindRenderTargetDepthTexture).
+	GLuint					DepthTexId;
 
 private:
 	CDriverGL3				*m_Driver;
@@ -1221,6 +1222,10 @@ private:
 	void						stageCameraUBO();       // Populate _CameraUBOData from driver state
 	void						uploadCameraUBO();      // Upload _CameraUBOData to GPU if upload dirty
 
+	// Post-processing scene depth: depth texture currently bound on the reserved nlSceneDepth unit (0 = none)
+	GLuint						_PostDepthBoundTexId;
+	void						bindPostDepthTexture(GLuint texId);
+
 	// Sun cascaded shadow maps (driver_opengl3_shadow.cpp)
 	GLuint						_SunShadowTexId;        // GL_TEXTURE_2D_ARRAY depth texture (one layer per cascade)
 	GLuint						_SunShadowFBOs[NL_OPENGL3_MAX_SUN_SHADOW_CASCADES]; // one depth-only FBO per layer
@@ -1596,6 +1601,14 @@ private:
 	virtual void			setSunShadowReceive(bool enable, float strength) NL_OVERRIDE;
 	/// Reserved fragment texture unit for the shadow map sampler, or -1 when unsupported (always >= IDRV_PROGRAM_MAXSAMPLERS)
 	sint					getSunShadowTextureUnit() const;
+	// @}
+
+	/// \name Post-processing scene depth (driver_opengl3_texture.cpp)
+	// @{
+	virtual bool			supportRenderTargetDepthTexture() const NL_OVERRIDE;
+	virtual bool			bindRenderTargetDepthTexture(ITexture *renderTarget) NL_OVERRIDE;
+	/// Reserved fragment texture unit for the nlSceneDepth sampler (one below the sun shadow unit), or -1
+	sint					getPostDepthTextureUnit() const;
 	// @}
 	virtual	bool			supportLargeUBOArrays() const NL_OVERRIDE;
 
