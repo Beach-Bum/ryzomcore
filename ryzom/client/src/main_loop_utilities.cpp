@@ -205,6 +205,10 @@ void updateFromClientCfg()
 	if (ClientCfg.ForceWaterReflections != LastClientCfg.ForceWaterReflections)
 		Scene->setForceRealtimeWaterReflections(ClientCfg.ForceWaterReflections);
 
+	// Sun cascaded shadow maps (tier 0 releases the maps and restores the previous look)
+	if (ClientCfg.ShadowQuality != LastClientCfg.ShadowQuality)
+		Scene->setSunShadowQuality(ClientCfg.ShadowQuality);
+
 	if (ClientCfg.FxNbMaxPoly != LastClientCfg.FxNbMaxPoly)
 	{
 		if (Scene->getGroupLoadMaxPolygon("Fx") != ClientCfg.FxNbMaxPoly)

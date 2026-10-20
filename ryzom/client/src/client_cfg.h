@@ -451,6 +451,8 @@ struct CClientConfig
 
 	/// Display or not the shadows.
 	bool			Shadows;
+	/// Sun cascaded shadow map quality: 0 = off, 1..3 = low/medium/high (OpenGL3 driver only).
+	uint			ShadowQuality;
 	/// Shadows are disabled after this distance.
 	float			ShadowsClipFar;
 	/// Shadows draw with just 1 part after this distance.

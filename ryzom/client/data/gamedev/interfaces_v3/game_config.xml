@@ -377,7 +377,8 @@
 			<instance template="tgcw_scrollbarint" id="cup" text="uiFxCloudUpdate" posparent="cqual" posref="BL TL" x="0" y="-2" />
 			-->
 			<instance template="tgcw_checkbox" id="shadow" text="uiFxShadow" posparent="maxpoly" posref="BL TL" x="-20" y="-12" />
-			<instance template="tgcw_checkbox" id="fxaa" text="uiFXAA" posparent="shadow" posref="BL TL" x="0" y="-12" />
+			<instance template="tgcw_scrollbarint" id="shadow_quality" text="uigcFxShadowQuality" posparent="shadow" posref="BL TL" x="20" y="-2" />
+			<instance template="tgcw_checkbox" id="fxaa" text="uiFXAA" posparent="shadow_quality" posref="BL TL" x="-20" y="-12" />
 			<group id="anisotropic_gr" posparent="fxaa" sizeparent="parent" sizeref="w" h="20" posref="BL TL" x="0" y="-12">
 				<view type="text" id="text" posref="TL TL" x="0" y="-4" color="255 255 255 192" fontsize="12" shadow="true" hardtext="uigcFxAnisotropicFilter" />
 				<group type="combo_box" id="anisotropic" w="70" h="20" value="UI:TEMP:ANISOTROPIC" posref="MR ML" posparent="text" x="4" y="0">
@@ -781,6 +782,7 @@
 			<param ui="fx:cqual:c" type="cfg" widget="sbfloat_round" realtime="true" ui_view="fx:cqual:c_res" link="CloudQuality" preset="UI:TEMP:PRESET_FX" />
 			<param ui="fx:cup:c" type="cfg" widget="sbint" realtime="true" ui_view="fx:cup:c_res" link="CloudUpdate" preset="UI:TEMP:PRESET_FX" />
 			<param ui="fx:shadow:c" type="cfg" widget="boolbut" realtime="true" link="Shadows" preset="UI:TEMP:PRESET_FX" />
+			<param ui="fx:shadow_quality:c" type="cfg" widget="sbint" realtime="true" ui_view="fx:shadow_quality:c_res" link="ShadowQuality" preset="UI:TEMP:PRESET_FX" />
 			<param ui="fx:fxaa:c" type="cfg" widget="boolbut" realtime="true" link="FXAA" preset="UI:TEMP:PRESET_FX" />
 			<param ui="fx:anisotropic_gr:anisotropic:c" type="db" widget="boolbut" realtime="true" link="UI:TEMP:ANISOTROPIC" />
 			<param ui="fx:bloom_gr:bloom:c" type="cfg" widget="boolbut" realtime="true" link="Bloom" preset="UI:TEMP:PRESET_FX" />

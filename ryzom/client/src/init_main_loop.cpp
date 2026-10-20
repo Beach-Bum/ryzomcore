@@ -640,6 +640,9 @@ void initMainLoop()
 		Scene->setWaterReflectionMaxTextures(ClientCfg.MaxWaterReflectionTextures);
 		Scene->setForceRealtimeWaterReflections(ClientCfg.ForceWaterReflections);
 
+		// sun cascaded shadow maps (0 = off; no-op on drivers without support)
+		Scene->setSunShadowQuality(ClientCfg.ShadowQuality);
+
 		// setup load balancing
 		Scene->setPolygonBalancingMode(UScene::PolygonBalancingClamp);
 		Scene->setGroupLoadMaxPolygon("Skin", ClientCfg.SkinNbMaxPoly);
