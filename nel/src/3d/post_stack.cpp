@@ -231,6 +231,265 @@ const char *s_PostSharpen =
 	"}\n";
 
 // ***************************************************************************
+// Ambient occlusion: GTAO main pass. Port of XeGTAO's main pass (GameTechDev/XeGTAO, MIT, see
+// nel/src/3d/THIRD_PARTY.md) rewritten as a fragment shader; no depth MIP prefilter (level 0 of the
+// scene depth is point-sampled), normals reconstructed in place (XE_GTAO_GENERATE_NORMALS_INPLACE),
+// no bent normals, no thin-occluder heuristic, no temporal noise (static interleaved gradient).
+// View space here: x right, y up, z = linear eye depth (forward). GL texture rows go up, so the
+// slice direction in screen space equals the view-space xy direction (no y flip).
+// Inputs: nlSceneDepth (full-res non-linear depth), rcpFrame = AO target texel size / size,
+// projParams = (near, far, P00, P11), aoParams = (effect radius [m], AO texel / depth texel ratio, slices, steps).
+// Output (RGBA8): R = visibility / XE_GTAO_OCCLUSION_TERM_SCALE (working term), G = packed LRTB edges.
+// ***************************************************************************
+const char *s_PostGTAO =
+	"const float NL_GTAO_PI = 3.1415926535897932;\n"
+	"const float NL_GTAO_PI_HALF = 1.5707963267948966;\n"
+	"const float NL_GTAO_FALLOFF_RANGE = 0.615;\n"            // XE_GTAO_DEFAULT_FALLOFF_RANGE
+	"const float NL_GTAO_SAMPLE_DISTRIBUTION_POWER = 2.0;\n"  // XE_GTAO_DEFAULT_SAMPLE_DISTRIBUTION_POWER
+	"const float NL_GTAO_FINAL_VALUE_POWER = 2.2;\n"          // XE_GTAO_DEFAULT_FINAL_VALUE_POWER
+	"const float NL_GTAO_OCCLUSION_TERM_SCALE = 1.5;\n"       // XE_GTAO_OCCLUSION_TERM_SCALE
+	"const float NL_GTAO_PIXEL_TOO_CLOSE = 1.3;\n"
+	"float nlGtaoFastACos(float inX)\n"
+	"{\n"
+	"  float x = abs(inX);\n"
+	"  float res = -0.156583 * x + NL_GTAO_PI_HALF;\n"
+	"  res *= sqrt(max(1.0 - x, 0.0));\n"
+	"  return (inX >= 0.0) ? res : NL_GTAO_PI - res;\n"
+	"}\n"
+	// NDC -> view (symmetric frustum): x = ndc.x * z / P00, y = ndc.y * z / P11
+	"vec3 nlGtaoViewPos(vec2 uv, float z)\n"
+	"{\n"
+	"  vec2 ndc = uv * 2.0 - 1.0;\n"
+	"  return vec3(ndc.x * z / projParams.z, ndc.y * z / projParams.w, z);\n"
+	"}\n"
+	"float nlGtaoViewZ(vec2 uv) { return nlLinearDepth(texture(nlSceneDepth, uv).r); }\n"
+	// XeGTAO_CalculateEdges
+	"vec4 nlGtaoEdges(float centerZ, float leftZ, float rightZ, float topZ, float bottomZ)\n"
+	"{\n"
+	"  vec4 e = vec4(leftZ, rightZ, topZ, bottomZ) - centerZ;\n"
+	"  float slopeLR = (e.y - e.x) * 0.5;\n"
+	"  float slopeTB = (e.w - e.z) * 0.5;\n"
+	"  vec4 eAdj = e + vec4(slopeLR, -slopeLR, slopeTB, -slopeTB);\n"
+	"  e = min(abs(e), abs(eAdj));\n"
+	"  return clamp(1.25 - e / (centerZ * 0.011), 0.0, 1.0);\n"
+	"}\n"
+	// XeGTAO_PackEdges (2 bits per edge in an 8-bit unorm)
+	"float nlGtaoPackEdges(vec4 e)\n"
+	"{\n"
+	"  e = round(clamp(e, 0.0, 1.0) * 2.9);\n"
+	"  return dot(e, vec4(64.0 / 255.0, 16.0 / 255.0, 4.0 / 255.0, 1.0 / 255.0));\n"
+	"}\n"
+	// XeGTAO_CalculateNormal: 4-tap edge-weighted normal from the view-space neighbours
+	"vec3 nlGtaoNormal(vec4 e, vec3 c, vec3 l, vec3 r, vec3 t, vec3 b)\n"
+	"{\n"
+	"  vec4 acc = clamp(vec4(e.x * e.z, e.z * e.y, e.y * e.w, e.w * e.x) + 0.01, 0.0, 1.0);\n"
+	"  l = normalize(l - c); r = normalize(r - c); t = normalize(t - c); b = normalize(b - c);\n"
+	"  vec3 n = acc.x * cross(l, t) + acc.y * cross(t, r) + acc.z * cross(r, b) + acc.w * cross(b, l);\n"
+	"  return normalize(n);\n"
+	"}\n"
+	// Interleaved gradient noise (Jimenez 2014)
+	"float nlIGN(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }\n"
+	"void main()\n"
+	"{\n"
+	"  vec2 px = rcpFrame.xy;\n"
+	// At half-res an AO texel centre sits exactly on a full-res depth texel border (NEAREST would pick either):
+	// shift by half a depth texel so every lookup lands on a texel centre. aoParams.y = AO texel / depth texel (1 or 2).
+	"  float depthScale = max(aoParams.y, 1.0);\n"
+	"  vec2 uv = texCoord0.xy - 0.5 * px * (depthScale - 1.0) / depthScale;\n"
+	"  float far = projParams.y;\n"
+	"  float d = texture(nlSceneDepth, uv).r;\n"
+	"  if (d >= 0.9999995)\n" // sky / far plane: fully visible, no edges
+	"  {\n"
+	"    fragColor = vec4(1.0 / NL_GTAO_OCCLUSION_TERM_SCALE, 0.0, 0.0, 1.0);\n"
+	"    return;\n"
+	"  }\n"
+	"  float viewZ = nlLinearDepth(d);\n"
+	"  float zL = nlGtaoViewZ(uv + vec2(-px.x, 0.0));\n"
+	"  float zR = nlGtaoViewZ(uv + vec2( px.x, 0.0));\n"
+	"  float zT = nlGtaoViewZ(uv + vec2(0.0,  px.y));\n"
+	"  float zB = nlGtaoViewZ(uv + vec2(0.0, -px.y));\n"
+	"  vec4 edges = nlGtaoEdges(viewZ, zL, zR, zT, zB);\n"
+	"  float packedEdges = nlGtaoPackEdges(edges);\n"
+	// distance fade: the sky dome / far landscape ends up fully visible
+	"  float farFade = clamp((viewZ - 0.90 * far) / (0.07 * far), 0.0, 1.0);\n"
+	"  if (farFade >= 1.0)\n"
+	"  {\n"
+	"    fragColor = vec4(1.0 / NL_GTAO_OCCLUSION_TERM_SCALE, packedEdges, 0.0, 1.0);\n"
+	"    return;\n"
+	"  }\n"
+	"  vec3 C = nlGtaoViewPos(uv, viewZ);\n"
+	"  vec3 L = nlGtaoViewPos(uv + vec2(-px.x, 0.0), zL);\n"
+	"  vec3 R = nlGtaoViewPos(uv + vec2( px.x, 0.0), zR);\n"
+	"  vec3 T = nlGtaoViewPos(uv + vec2(0.0,  px.y), zT);\n"
+	"  vec3 B = nlGtaoViewPos(uv + vec2(0.0, -px.y), zB);\n"
+	"  vec3 viewspaceNormal = nlGtaoNormal(edges, C, L, R, T, B);\n"
+	// move the centre slightly towards the camera (24-bit depth imprecision)
+	"  viewZ *= 0.9995;\n"
+	"  vec3 pixCenterPos = nlGtaoViewPos(uv, viewZ);\n"
+	"  vec3 viewVec = normalize(-pixCenterPos);\n"
+	"  float effectRadius = aoParams.x;\n"
+	// view-space size of one AO texel at this depth: z * (2 / P00) * px.x
+	"  float pixelSizeView = viewZ * 2.0 / projParams.z * px.x;\n"
+	"  float screenspaceRadius = effectRadius / pixelSizeView;\n"
+	// screen-space radius clamp (25 % of the target height): shrink the world radius with it
+	"  float maxRadius = rcpFrame.w * 0.25;\n"
+	"  if (screenspaceRadius > maxRadius)\n"
+	"  {\n"
+	"    effectRadius *= maxRadius / screenspaceRadius;\n"
+	"    screenspaceRadius = maxRadius;\n"
+	"  }\n"
+	"  float falloffRange = NL_GTAO_FALLOFF_RANGE * effectRadius;\n"
+	"  float falloffFrom = effectRadius * (1.0 - NL_GTAO_FALLOFF_RANGE);\n"
+	"  float falloffMul = -1.0 / falloffRange;\n"
+	"  float falloffAdd = falloffFrom / falloffRange + 1.0;\n"
+	// fade out for small screen radii
+	"  float visibility = clamp((10.0 - screenspaceRadius) / 100.0, 0.0, 1.0) * 0.5;\n"
+	"  float minS = NL_GTAO_PIXEL_TOO_CLOSE / screenspaceRadius;\n"
+	"  vec2 pix = floor(gl_FragCoord.xy);\n"
+	"  float noiseSlice = nlIGN(pix);\n"
+	"  float noiseSample = nlIGN(pix + vec2(17.0, 31.0));\n"
+	"  int sliceCount = int(aoParams.z);\n"
+	"  int stepsPerSlice = int(aoParams.w);\n"
+	"  for (int slice = 0; slice < sliceCount; ++slice)\n"
+	"  {\n"
+	"    float sliceK = (float(slice) + noiseSlice) / float(sliceCount);\n"
+	"    float phi = sliceK * NL_GTAO_PI;\n"
+	"    float cosPhi = cos(phi);\n"
+	"    float sinPhi = sin(phi);\n"
+	"    vec2 omega = vec2(cosPhi, sinPhi) * screenspaceRadius;\n"
+	"    vec3 directionVec = vec3(cosPhi, sinPhi, 0.0);\n"
+	"    vec3 orthoDirectionVec = directionVec - dot(directionVec, viewVec) * viewVec;\n"
+	"    vec3 axisVec = normalize(cross(orthoDirectionVec, viewVec));\n"
+	"    vec3 projectedNormalVec = viewspaceNormal - axisVec * dot(viewspaceNormal, axisVec);\n"
+	"    float signNorm = sign(dot(orthoDirectionVec, projectedNormalVec));\n"
+	"    float projectedNormalVecLength = length(projectedNormalVec);\n"
+	"    float cosNorm = clamp(dot(projectedNormalVec, viewVec) / max(projectedNormalVecLength, 1e-5), 0.0, 1.0);\n"
+	"    float n = signNorm * nlGtaoFastACos(cosNorm);\n"
+	"    float lowHorizonCos0 = cos(n + NL_GTAO_PI_HALF);\n"
+	"    float lowHorizonCos1 = cos(n - NL_GTAO_PI_HALF);\n"
+	"    float horizonCos0 = lowHorizonCos0;\n"
+	"    float horizonCos1 = lowHorizonCos1;\n"
+	"    for (int step = 0; step < stepsPerSlice; ++step)\n"
+	"    {\n"
+	"      float stepBaseNoise = float(slice + step * stepsPerSlice) * 0.6180339887498948482;\n"
+	"      float stepNoise = fract(noiseSample + stepBaseNoise);\n"
+	"      float s = (float(step) + stepNoise) / float(stepsPerSlice);\n"
+	"      s = pow(s, NL_GTAO_SAMPLE_DISTRIBUTION_POWER);\n"
+	"      s += minS;\n"
+	"      vec2 sampleOffset = round(s * omega) * px;\n"
+	"      vec2 sp0 = uv + sampleOffset;\n"
+	"      vec2 sp1 = uv - sampleOffset;\n"
+	"      vec3 samplePos0 = nlGtaoViewPos(sp0, nlGtaoViewZ(sp0));\n"
+	"      vec3 samplePos1 = nlGtaoViewPos(sp1, nlGtaoViewZ(sp1));\n"
+	"      vec3 sampleDelta0 = samplePos0 - pixCenterPos;\n"
+	"      vec3 sampleDelta1 = samplePos1 - pixCenterPos;\n"
+	"      float sampleDist0 = max(length(sampleDelta0), 1e-5);\n"
+	"      float sampleDist1 = max(length(sampleDelta1), 1e-5);\n"
+	"      vec3 sampleHorizonVec0 = sampleDelta0 / sampleDist0;\n"
+	"      vec3 sampleHorizonVec1 = sampleDelta1 / sampleDist1;\n"
+	"      float weight0 = clamp(sampleDist0 * falloffMul + falloffAdd, 0.0, 1.0);\n"
+	"      float weight1 = clamp(sampleDist1 * falloffMul + falloffAdd, 0.0, 1.0);\n"
+	"      float shc0 = dot(sampleHorizonVec0, viewVec);\n"
+	"      float shc1 = dot(sampleHorizonVec1, viewVec);\n"
+	"      shc0 = mix(lowHorizonCos0, shc0, weight0);\n"
+	"      shc1 = mix(lowHorizonCos1, shc1, weight1);\n"
+	"      horizonCos0 = max(horizonCos0, shc0);\n"
+	"      horizonCos1 = max(horizonCos1, shc1);\n"
+	"    }\n"
+	"    projectedNormalVecLength = mix(projectedNormalVecLength, 1.0, 0.05);\n"
+	"    float h0 = -nlGtaoFastACos(horizonCos1);\n"
+	"    float h1 = nlGtaoFastACos(horizonCos0);\n"
+	"    float iarc0 = (cosNorm + 2.0 * h0 * sin(n) - cos(2.0 * h0 - n)) / 4.0;\n"
+	"    float iarc1 = (cosNorm + 2.0 * h1 * sin(n) - cos(2.0 * h1 - n)) / 4.0;\n"
+	"    visibility += projectedNormalVecLength * (iarc0 + iarc1);\n"
+	"  }\n"
+	"  visibility /= float(sliceCount);\n"
+	"  visibility = pow(max(visibility, 0.0), NL_GTAO_FINAL_VALUE_POWER);\n"
+	"  visibility = max(0.03, visibility);\n"
+	"  visibility = mix(visibility, 1.0, farFade);\n"
+	"  fragColor = vec4(clamp(visibility / NL_GTAO_OCCLUSION_TERM_SCALE, 0.0, 1.0), packedEdges, 0.0, 1.0);\n"
+	"}\n";
+
+// AO denoise: XeGTAO_Denoise (edge-aware 3x3 blur, one pixel per invocation; the HLSL does two).
+// sampler0 = AO working term (R) + packed edges (G); rcpFrame.zw = target size;
+// aoParams.x = blur amount (DenoiseBlurBeta 1.2 on the final pass, /5 before), aoParams.w = final scale
+// (XE_GTAO_OCCLUSION_TERM_SCALE on the final pass, 1 otherwise). Edges are passed through in G.
+const char *s_PostAODenoise =
+	"vec4 nlGtaoUnpackEdges(float packedVal)\n"
+	"{\n"
+	"  uint p = uint(packedVal * 255.5);\n"
+	"  vec4 e;\n"
+	"  e.x = float((p >> 6u) & 3u) / 3.0;\n"
+	"  e.y = float((p >> 4u) & 3u) / 3.0;\n"
+	"  e.z = float((p >> 2u) & 3u) / 3.0;\n"
+	"  e.w = float(p & 3u) / 3.0;\n"
+	"  return clamp(e, 0.0, 1.0);\n"
+	"}\n"
+	"vec4 nlAOFetch(ivec2 c, ivec2 sz) { return texelFetch(sampler0, clamp(c, ivec2(0), sz - 1), 0); }\n"
+	"void main()\n"
+	"{\n"
+	"  ivec2 sz = ivec2(rcpFrame.zw);\n"
+	"  ivec2 p = ivec2(gl_FragCoord.xy);\n"
+	"  float blurAmount = aoParams.x;\n"
+	"  float finalScale = aoParams.w;\n"
+	"  const float diagWeight = 0.85 * 0.5;\n"
+	"  vec4 c  = nlAOFetch(p, sz);\n"
+	"  vec4 l  = nlAOFetch(p + ivec2(-1,  0), sz);\n"
+	"  vec4 r  = nlAOFetch(p + ivec2( 1,  0), sz);\n"
+	"  vec4 t  = nlAOFetch(p + ivec2( 0,  1), sz);\n"
+	"  vec4 b  = nlAOFetch(p + ivec2( 0, -1), sz);\n"
+	"  vec4 tl = nlAOFetch(p + ivec2(-1,  1), sz);\n"
+	"  vec4 tr = nlAOFetch(p + ivec2( 1,  1), sz);\n"
+	"  vec4 bl = nlAOFetch(p + ivec2(-1, -1), sz);\n"
+	"  vec4 br = nlAOFetch(p + ivec2( 1, -1), sz);\n"
+	"  vec4 eC = nlGtaoUnpackEdges(c.g);\n"
+	"  vec4 eL = nlGtaoUnpackEdges(l.g);\n"
+	"  vec4 eR = nlGtaoUnpackEdges(r.g);\n"
+	"  vec4 eT = nlGtaoUnpackEdges(t.g);\n"
+	"  vec4 eB = nlGtaoUnpackEdges(b.g);\n"
+	// enforce edge symmetry with the neighbours
+	"  eC *= vec4(eL.y, eR.x, eT.w, eB.z);\n"
+	// small leak through 3-4 edge pixels (reduces aliasing)
+	"  const float leakThreshold = 2.5;\n"
+	"  const float leakStrength = 0.5;\n"
+	"  float edginess = (clamp(4.0 - leakThreshold - dot(eC, vec4(1.0)), 0.0, 1.0) / (4.0 - leakThreshold)) * leakStrength;\n"
+	"  eC = clamp(eC + edginess, 0.0, 1.0);\n"
+	"  float wTL = diagWeight * (eC.x * eL.z + eC.z * eT.x);\n"
+	"  float wTR = diagWeight * (eC.z * eT.y + eC.y * eR.z);\n"
+	"  float wBL = diagWeight * (eC.w * eB.x + eC.x * eL.w);\n"
+	"  float wBR = diagWeight * (eC.y * eR.w + eC.w * eB.y);\n"
+	"  float sumWeight = blurAmount;\n"
+	"  float sum = c.r * sumWeight;\n"
+	"  sum += l.r * eC.x;  sumWeight += eC.x;\n"
+	"  sum += r.r * eC.y;  sumWeight += eC.y;\n"
+	"  sum += t.r * eC.z;  sumWeight += eC.z;\n"
+	"  sum += b.r * eC.w;  sumWeight += eC.w;\n"
+	"  sum += tl.r * wTL;  sumWeight += wTL;\n"
+	"  sum += tr.r * wTR;  sumWeight += wTR;\n"
+	"  sum += bl.r * wBL;  sumWeight += wBL;\n"
+	"  sum += br.r * wBR;  sumWeight += wBR;\n"
+	"  float ao = sum / sumWeight;\n"
+	"  fragColor = vec4(clamp(ao * finalScale, 0.0, 1.0), c.g, 0.0, 1.0);\n"
+	"}\n";
+
+// AO composite (in place on the scene target, depth unbound): scene (sampler0) * mix(1, ao, strength),
+// ao (sampler1, bilinear from half-res at tiers 1-2) floored so the result never drops below 40 %.
+// aoParams.y = strength, aoParams.z > 0.5 = NL_POST_DEBUG raw AO view.
+const char *s_PostAOComposite =
+	"void main()\n"
+	"{\n"
+	"  vec4 s = texture(sampler0, texCoord0.xy);\n"
+	"  float ao = texture(sampler1, texCoord0.xy).r;\n"
+	"  if (aoParams.z > 0.5)\n"
+	"  {\n"
+	"    fragColor = vec4(vec3(ao), s.a);\n"
+	"    return;\n"
+	"  }\n"
+	"  float f = max(mix(1.0, ao, aoParams.y), 0.4);\n"
+	"  fragColor = vec4(s.rgb * f, s.a);\n"
+	"}\n";
+
+// ***************************************************************************
 // NlPost UBO (std140): vec4 rcpFrame; vec4 projParams; vec4 aoParams; vec4 bloomParams; vec4 gradeParams;
 // ***************************************************************************
 struct CPostUBOOffsets
@@ -335,7 +594,11 @@ CPostStack::CPostStack(NL3D::UDriver *driver)
     , m_PPComposite(nullptr)
     , m_PPGrade(nullptr)
     , m_PPSharpen(nullptr)
+    , m_PPGTAO(nullptr)
+    , m_PPAODenoise(nullptr)
+    , m_PPAOComposite(nullptr)
     , m_FXAA(nullptr)
+    , m_DebugAO(false)
     , m_AO(0)
     , m_AA(0)
     , m_Bloom(false)
@@ -386,6 +649,29 @@ CPostStack::CPostStack(NL3D::UDriver *driver)
 		nldebug("3D: Post stack unsupported (GL3 pixel programs not available on this driver)");
 		release();
 		return;
+	}
+
+	// AO programs (optional: the stage is skipped when the driver has no sampleable scene depth)
+	if (drv->supportRenderTargetDepthTexture())
+	{
+		m_PPGTAO = createPixelProgram("GTAO", s_PostGTAO);
+		m_PPAODenoise = createPixelProgram("AODenoise", s_PostAODenoise);
+		m_PPAOComposite = createPixelProgram("AOComposite", s_PostAOComposite);
+		if (!(m_PPGTAO && m_PPAODenoise && m_PPAOComposite))
+		{
+			nlwarning("3D: Post stack AO programs failed to compile; AO stage disabled");
+			delete m_PPGTAO; m_PPGTAO = nullptr;
+			delete m_PPAODenoise; m_PPAODenoise = nullptr;
+			delete m_PPAOComposite; m_PPAOComposite = nullptr;
+		}
+	}
+
+	// NL_POST_DEBUG=1: the AO composite outputs the raw AO term instead of the shaded scene
+	{
+		const char *dbg = getenv("NL_POST_DEBUG");
+		m_DebugAO = dbg && atoi(dbg) > 0;
+		if (m_DebugAO)
+			nlinfo("3D: Post stack debug view enabled (NL_POST_DEBUG=%s): raw AO term", dbg);
 	}
 
 	// Vertex program
@@ -492,6 +778,9 @@ void CPostStack::release()
 	delete m_PPComposite; m_PPComposite = nullptr;
 	delete m_PPGrade; m_PPGrade = nullptr;
 	delete m_PPSharpen; m_PPSharpen = nullptr;
+	delete m_PPGTAO; m_PPGTAO = nullptr;
+	delete m_PPAODenoise; m_PPAODenoise = nullptr;
+	delete m_PPAOComposite; m_PPAOComposite = nullptr;
 }
 
 // ***************************************************************************
@@ -747,16 +1036,87 @@ void CPostStack::apply(NL3D::UScene *scene)
 // ***************************************************************************
 void CPostStack::applyAO()
 {
-	// PART B STUB — GTAO (XeGTAO port) goes here. Plumbing already in place:
-	//  - bindSceneDepth(true) binds the scene target's depth-stencil texture on the `nlSceneDepth`
-	//    sampler (red = non-linear depth); nlLinearDepth() in s_PostCommon linearises it with
-	//    projParams.xy = (near, far); projParams.zw = projection scale (2n/(r-l), 2n/(t-b)) for NDC->view.
-	//  - The AO term must be rendered into colour-only targets
-	//    (getRenderTargetManager().getRenderTarget(w, h, false)) while the depth is bound; unbind with
-	//    bindSceneDepth(false) before the composite, which runs in place (runInPlace) and multiplies
-	//    colour by mix(1.0, ao, aoStrength), never below 40 % of the lit colour.
-	//  - CPostParams::AOParams = (radius 1.5 m, strength 0.6, slices, steps) per tier.
-	return;
+	// GTAO (XeGTAO port). Tiers: 1 = half-res 2x2, 1 denoise; 2 = half-res 3x3, 1 denoise;
+	// 3 = full-res 4x4, 2 denoise passes. Half-res tiers are upsampled bilinearly in the composite
+	// (the AO targets are Linear-filtered by CRenderTargetManager).
+	if (!(m_PPGTAO && m_PPAODenoise && m_PPAOComposite))
+		return;
+	if (m_ProjParams[1] <= m_ProjParams[0])
+		return; // no camera (apply(NULL)): depth cannot be linearised
+	if (!bindSceneDepth(true))
+	{
+		static bool warned = false;
+		if (!warned)
+		{
+			nlwarning("3D: Post stack AO skipped: scene depth texture not available");
+			warned = true;
+		}
+		return;
+	}
+
+	CRenderTargetManager &rtm = m_Driver->getRenderTargetManager();
+
+	static const float s_AOSlices[4] = { 0.0f, 2.0f, 3.0f, 4.0f };
+	static const float s_AOSteps[4] = { 0.0f, 2.0f, 3.0f, 4.0f };
+	const float aoRadius = 1.5f;   // effective world radius [m] (XeGTAO Radius x RadiusMultiplier folded in)
+	const float aoStrength = 0.6f; // composite mix; the composite also floors the result at 40 %
+	const float denoiseBlurBeta = 1.2f; // XeGTAO DenoiseBlurBeta for DenoisePasses > 0
+	const float occlusionTermScale = 1.5f; // XE_GTAO_OCCLUSION_TERM_SCALE
+
+	uint tier = std::min(m_AO, 3u);
+	bool fullRes = (tier >= 3);
+	uint aw = fullRes ? m_Width : std::max(1u, (m_Width + 1) / 2);
+	uint ah = fullRes ? m_Height : std::max(1u, (m_Height + 1) / 2);
+	uint denoisePasses = fullRes ? 2 : 1;
+
+	// Colour-only targets (no depth attachment): the scene depth texture is sampled while they are bound
+	CTextureUser *aoA = rtm.getRenderTarget(aw, ah, false);
+	CTextureUser *aoB = rtm.getRenderTarget(aw, ah, false);
+	nlassert(aoA && aoB);
+
+	CPostParams p;
+	p.RcpFrame[0] = 1.0f / (float)aw;
+	p.RcpFrame[1] = 1.0f / (float)ah;
+	p.RcpFrame[2] = (float)aw;
+	p.RcpFrame[3] = (float)ah;
+	for (uint i = 0; i < 4; ++i)
+		p.ProjParams[i] = m_ProjParams[i];
+
+	// Main pass: scene depth -> AO working term + edges (sampler0 unused, bound for a complete material)
+	p.AOParams[0] = aoRadius;
+	p.AOParams[1] = fullRes ? 1.0f : 2.0f; // AO texel / depth texel ratio
+	p.AOParams[2] = s_AOSlices[tier];
+	p.AOParams[3] = s_AOSteps[tier];
+	runTo(m_PPGTAO, m_SceneTarget, nullptr, aoA, false, p);
+
+	// Edge-aware denoise, ping-pong; the last pass scales the working term back to visibility
+	CTextureUser *src = aoA;
+	CTextureUser *dst = aoB;
+	for (uint i = 0; i < denoisePasses; ++i)
+	{
+		bool finalApply = (i + 1 == denoisePasses);
+		p.AOParams[0] = finalApply ? denoiseBlurBeta : denoiseBlurBeta / 5.0f;
+		p.AOParams[1] = 0.0f;
+		p.AOParams[2] = 0.0f;
+		p.AOParams[3] = finalApply ? occlusionTermScale : 1.0f;
+		runTo(m_PPAODenoise, src->getITexture(), nullptr, dst, false, p);
+		std::swap(src, dst);
+	}
+
+	// Composite in place on the scene target: its depth is attached again, so unbind the sampler first
+	bindSceneDepth(false);
+	p.RcpFrame[0] = 1.0f / (float)m_Width;
+	p.RcpFrame[1] = 1.0f / (float)m_Height;
+	p.RcpFrame[2] = (float)m_Width;
+	p.RcpFrame[3] = (float)m_Height;
+	p.AOParams[0] = aoRadius;
+	p.AOParams[1] = aoStrength;
+	p.AOParams[2] = m_DebugAO ? 1.0f : 0.0f;
+	p.AOParams[3] = 0.0f;
+	runInPlace(m_PPAOComposite, src->getITexture(), p);
+
+	rtm.recycleRenderTarget(aoA);
+	rtm.recycleRenderTarget(aoB);
 }
 
 // ***************************************************************************

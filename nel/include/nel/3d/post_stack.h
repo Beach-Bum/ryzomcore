@@ -48,7 +48,7 @@ class CFXAA;
  * GL3-only: shader sources are glsl300esf (UBO) / glsl330f; on drivers without those profiles
  * isSupported() is false and the caller keeps its legacy effects.
  *
- * Pass order (design docs/ryzom/research/post-stack-design.md): AO (part B, stub) -> bloom ->
+ * Pass order (design docs/ryzom/research/post-stack-design.md): AO (GTAO) -> bloom ->
  * colour grade -> FXAA -> resample sharpen. Every pass follows the CFXAA::applyEffect pattern:
  * fog off, 2D11 matrix, user VP/PP, one NlPost UBO (rcpFrame, projParams, aoParams, bloomParams,
  * gradeParams), scratch targets from CRenderTargetManager, recycled per pass.
@@ -99,7 +99,7 @@ private:
 	{
 		float RcpFrame[4];    // 1/srcW, 1/srcH, srcW, srcH
 		float ProjParams[4];  // near, far, projScaleX (2n/(r-l)), projScaleY (2n/(t-b))
-		float AOParams[4];    // radius, strength, slices, steps (part B)
+		float AOParams[4];    // GTAO: radius, AO/depth texel ratio, slices, steps; denoise: blur amount, -, -, final scale; composite: radius, strength, debug, -
 		float BloomParams[4]; // threshold, soft knee, intensity, 0
 		float GradeParams[4]; // strength, S-curve amount, saturation, sharpness
 		CPostParams();
@@ -118,7 +118,10 @@ private:
 
 	/// \name Passes
 	// @{
-	/// Part B stub: GTAO. Returns early. See bindSceneDepth() and CPostParams::ProjParams for the plumbing it uses.
+	/** GTAO (XeGTAO port, see nel/src/3d/THIRD_PARTY.md): main pass + edge-aware denoise into colour-only
+	 *	targets while the scene depth is bound, then a multiply composite in place on the scene target.
+	 *	Skipped when the driver has no sampleable depth or apply() got no scene. NL_POST_DEBUG=1 shows the raw AO term.
+	 */
 	void applyAO();
 	void applyBloom();
 	void applyGrade();
@@ -147,7 +150,11 @@ private:
 	CPixelProgram *m_PPComposite;
 	CPixelProgram *m_PPGrade;
 	CPixelProgram *m_PPSharpen;
+	CPixelProgram *m_PPGTAO;        // AO main pass (scene depth -> working term + edges)
+	CPixelProgram *m_PPAODenoise;   // AO edge-aware denoise (ping-pong)
+	CPixelProgram *m_PPAOComposite; // AO multiply composite (in place)
 	CFXAA *m_FXAA;
+	bool m_DebugAO; // NL_POST_DEBUG: composite outputs the raw AO term
 
 	// Quality
 	uint m_AO;
