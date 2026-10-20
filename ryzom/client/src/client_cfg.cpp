@@ -528,7 +528,7 @@ CClientConfig::CClientConfig()
 	PacsPrimDir.push_back("data/3d/");
 
 	Shadows				= true;						// Draw Shadows by default.
-	ShadowQuality		= 0;							// Sun cascaded shadow maps off by default (opengl3 only).
+	ShadowQuality		= 2;							// Sun cascaded shadow maps: medium tier by default (opengl3 only; no-op elsewhere).
 	ShadowsClipFar		= 10.f;						// Shadows are disabled after this distance.
 	ShadowsLodDist		= 3.f;						// Shadows draw with just 1 part after this distance.
 	ShadowZDirClampLandscape	= -0.5f;			// On landscape, allow a minimum Phi angle of -30 degrees

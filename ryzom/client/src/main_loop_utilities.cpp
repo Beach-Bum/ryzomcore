@@ -207,7 +207,7 @@ void updateFromClientCfg()
 
 	// Sun cascaded shadow maps (tier 0 releases the maps and restores the previous look)
 	if (ClientCfg.ShadowQuality != LastClientCfg.ShadowQuality)
-		Scene->setSunShadowQuality(ClientCfg.ShadowQuality);
+		Scene->setSunShadowQuality((uint)std::max(ClientCfg.ShadowQuality, (sint)0));
 
 	if (ClientCfg.FxNbMaxPoly != LastClientCfg.FxNbMaxPoly)
 	{
