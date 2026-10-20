@@ -210,6 +210,8 @@ void updateFromClientCfg()
 		Scene->setSunShadowQuality((uint)std::max(ClientCfg.ShadowQuality, (sint)0));
 	if (ClientCfg.ShadowMaxCasterSize != LastClientCfg.ShadowMaxCasterSize)
 		Scene->setSunShadowMaxCasterSize(ClientCfg.ShadowMaxCasterSize);
+	if (ClientCfg.ShadowMaxCasterHeight != LastClientCfg.ShadowMaxCasterHeight)
+		Scene->setSunShadowMaxCasterHeight(ClientCfg.ShadowMaxCasterHeight);
 
 	if (ClientCfg.FxNbMaxPoly != LastClientCfg.FxNbMaxPoly)
 	{

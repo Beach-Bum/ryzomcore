@@ -464,6 +464,8 @@ struct CClientConfig
 	sint			ShadowQuality;
 	/// Meshes with a horizontal footprint above this (metres) do not cast sun shadows; 0 = no limit.
 	float			ShadowMaxCasterSize;
+	/// Meshes whose bottom hangs more than this (metres) above the camera do not cast sun shadows; 0 = no limit.
+	float			ShadowMaxCasterHeight;
 	/// Shadows are disabled after this distance.
 	float			ShadowsClipFar;
 	/// Shadows draw with just 1 part after this distance.

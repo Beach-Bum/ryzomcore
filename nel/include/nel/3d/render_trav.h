@@ -414,6 +414,7 @@ private:
 	bool			sunShadowCasterInCascade(CTransform *tr) const;
 	bool			_SunShadowCullActive;
 	float			_SunShadowMaxCasterSize;	// CScene::getSunShadowMaxCasterSize() for this frame (0 = no limit)
+	float			_SunShadowMaxCasterHeight;	// CScene::getSunShadowMaxCasterHeight() for this frame (0 = no limit)
 	NLMISC::CMatrix	_SunShadowCullLightView;	// PZB-relative world -> light space (rotation only)
 	float			_SunShadowCullBox[6];		// left, right, bottom, top, near, far (light space)
 	/* Far-cascade cadence: cascades 0 and 1 are rendered every frame, cascades >= 2 every other

@@ -107,6 +107,7 @@ CRenderTrav::CRenderTrav()
 	_SunShadowStrength= 1.f;
 	_SunShadowCullActive= false;
 	_SunShadowMaxCasterSize= 0.f;
+	_SunShadowMaxCasterHeight= 0.f;
 	_SunShadowCullLightView.identity();
 	for(uint i= 0; i < 6; ++i)
 		_SunShadowCullBox[i]= 0.f;
@@ -664,6 +665,11 @@ bool		CRenderTrav::sunShadowCasterInCascade(CTransform *tr) const
 			if(std::max(hs.x, hs.y) * 2.f > _SunShadowMaxCasterSize)
 				return false;
 		}
+		// Overhead geometry: the arches are split into chunks that pass the footprint test one by one,
+		// so also skip anything whose bottom hangs well above the camera. Ground-rooted trees and
+		// buildings have their bbox bottom at ground level and are unaffected.
+		if(_SunShadowMaxCasterHeight > 0.f && worldBB.getMin().z - CamPos.z > _SunShadowMaxCasterHeight)
+			return false;
 	}
 	else
 		return true;
@@ -709,6 +715,7 @@ void		CRenderTrav::renderSunShadowCascades()
 	// Quality tiers: cascades, map size, PCF kernel, max distance
 	uint	quality= std::min(Scene->getSunShadowQuality(), 3u);
 	_SunShadowMaxCasterSize= Scene->getSunShadowMaxCasterSize();
+	_SunShadowMaxCasterHeight= Scene->getSunShadowMaxCasterHeight();
 	uint	numCascades, mapSize, pcfTaps;
 	float	maxDist;
 	switch(quality)
@@ -803,7 +810,9 @@ void		CRenderTrav::renderSunShadowCascades()
 		// A skipped cascade keeps its last rendered matrix/split; the PZB origin moved since,
 		// so re-base it: the stored matrix maps (world - oldCamPos), the receiver provides
 		// (world - CamPos), and (world - oldCamPos) = (world - CamPos) + (CamPos - oldCamPos).
-		bool	refresh= (c < 2) || !_SunShadowCascadeValid[c] || (((_SunShadowFrame + c) & 1) == 0);
+		// Cascades 0..2 every frame (alternating refresh of a mid-range cascade reads as flicker
+		// while moving); only the 4th cascade (tier 3, 150-250 m) is refreshed every other frame.
+		bool	refresh= (c < 3) || !_SunShadowCascadeValid[c] || (((_SunShadowFrame + c) & 1) == 0);
 		if(!refresh)
 		{
 			CMatrix	rebase;

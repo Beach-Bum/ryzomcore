@@ -654,6 +654,7 @@ void initMainLoop()
 		// sun cascaded shadow maps (0 = off; no-op on drivers without support; the scene clamps to 0..3)
 		Scene->setSunShadowQuality((uint)std::max(ClientCfg.ShadowQuality, (sint)0));
 		Scene->setSunShadowMaxCasterSize(ClientCfg.ShadowMaxCasterSize);
+		Scene->setSunShadowMaxCasterHeight(ClientCfg.ShadowMaxCasterHeight);
 
 		// setup load balancing
 		Scene->setPolygonBalancingMode(UScene::PolygonBalancingClamp);
@@ -1731,19 +1732,7 @@ void initBloomConfigUI()
 		button->setFrozen(!supportBloom);
 	}
 
-	button = dynamic_cast<CCtrlBaseButton*>(CWidgetManager::getInstance()->getElementFromId("ui:interface:game_config:content:fx:bloom_gr:square_bloom:c"));
-	if(button)
-	{
-		button->setFrozen(!supportBloom);
-	}
-
-	button = dynamic_cast<CCtrlBaseButton*>(CWidgetManager::getInstance()->getElementFromId("ui:interface:game_config:content:fx:fxaa:c"));
-	if (button)
-	{
-		button->setFrozen(!supportBloom);
-	}
-
-	CCtrlScroll * scroll = dynamic_cast<CCtrlScroll*>(CWidgetManager::getInstance()->getElementFromId("ui:interface:game_config:content:fx:bloom_gr:density_bloom:c"));
+	CCtrlScroll * scroll = dynamic_cast<CCtrlScroll*>(CWidgetManager::getInstance()->getElementFromId("ui:interface:game_config:content:fx:bloom_gr:bloom_intensity:c"));
 	if(scroll)
 	{
 		scroll->setFrozen(!supportBloom);
@@ -1756,10 +1745,8 @@ void initBloomConfigUI()
 		if(group)
 			group->setDefaultContextHelp(CI18N::get("uiFxTooltipBloom"));
 
-		ClientCfg.writeBool("FXAA", false);
 		ClientCfg.writeBool("Bloom", false);
-		ClientCfg.writeBool("SquareBloom", false);
-		ClientCfg.writeInt("DensityBloom", 0);
+		ClientCfg.writeDouble("BloomIntensity", 0.0);
 	}
 	else
 	{

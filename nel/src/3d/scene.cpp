@@ -190,6 +190,7 @@ CScene::CScene(bool bSmallScene) : LightTrav(bSmallScene)
 	_VisualCollisionManagerForShadow = nullptr;
 	_SunShadowQuality = 0;
 	_SunShadowMaxCasterSize = 0.f;
+	_SunShadowMaxCasterHeight = 0.f;
 
 	_GPUSkinningEnabled = true;
 

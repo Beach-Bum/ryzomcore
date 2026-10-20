@@ -655,6 +655,11 @@ public:
 	 */
 	void			setSunShadowMaxCasterSize(float meters) {_SunShadowMaxCasterSize= meters > 0.f ? meters : 0.f;}
 	float			getSunShadowMaxCasterSize() const {return _SunShadowMaxCasterSize;}
+	/** Meshes whose bounding box bottom is more than this many metres above the camera do not cast
+	 *	(overhead canopy and root arches, whatever their footprint). 0 = no limit (default).
+	 */
+	void			setSunShadowMaxCasterHeight(float meters) {_SunShadowMaxCasterHeight= meters > 0.f ? meters : 0.f;}
+	float			getSunShadowMaxCasterHeight() const {return _SunShadowMaxCasterHeight;}
 	// @}
 
 	void			setWaterCallback(IWaterSurfaceAddedCallback *wcb) { _WaterCallback = wcb; }
@@ -863,6 +868,7 @@ private:
 	// Sun cascaded shadow maps quality tier (0 = off)
 	uint			_SunShadowQuality;
 	float			_SunShadowMaxCasterSize;
+	float			_SunShadowMaxCasterHeight;
 
 	// GPU Skinning
 	bool			_GPUSkinningEnabled;

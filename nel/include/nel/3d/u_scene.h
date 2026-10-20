@@ -649,6 +649,9 @@ public:
 	/// Largest horizontal footprint (metres) of a mesh that still casts a sun shadow; 0 = no limit.
 	virtual	void			setSunShadowMaxCasterSize(float meters) =0;
 	virtual	float			getSunShadowMaxCasterSize() const =0;
+	/// Meshes whose bbox bottom is higher than this above the camera (metres) do not cast; 0 = no limit.
+	virtual	void			setSunShadowMaxCasterHeight(float meters) =0;
+	virtual	float			getSunShadowMaxCasterHeight() const =0;
 	// @}
 
 	// set a callback to know when a water surface is instantiated
