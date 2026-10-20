@@ -109,6 +109,15 @@ CRenderTrav::CRenderTrav()
 	_SunShadowCullLightView.identity();
 	for(uint i= 0; i < 6; ++i)
 		_SunShadowCullBox[i]= 0.f;
+	_SunShadowFrame= 0;
+	_SunShadowLastQuality= 0;
+	for(uint i= 0; i < MaxSunShadowCascades; ++i)
+	{
+		_SunShadowCascadeValid[i]= false;
+		_SunShadowCascadeMatrix[i].identity();
+		_SunShadowCascadeCamPos[i]= CVector::Null;
+		_SunShadowCascadeSplit[i]= 0.f;
+	}
 }
 
 
@@ -704,6 +713,16 @@ void		CRenderTrav::renderSunShadowCascades()
 		return;
 	}
 
+	// Far-cascade cadence bookkeeping: a quality change reallocates the driver maps, so every
+	// stored cascade is stale and must be re-rendered this frame.
+	_SunShadowFrame++;
+	if(quality != _SunShadowLastQuality)
+	{
+		_SunShadowLastQuality= quality;
+		for(uint i= 0; i < MaxSunShadowCascades; ++i)
+			_SunShadowCascadeValid[i]= false;
+	}
+
 	// Shadow strength: ambient share of the sun light. At night ambient dominates and
 	// shadows fade automatically. lum = 0.299 R + 0.587 G + 0.114 B.
 	{
@@ -766,6 +785,20 @@ void		CRenderTrav::renderSunShadowCascades()
 		float	d0= splits[c];
 		float	d1= splits[c+1];
 
+		// Cadence: cascades >= 2 are refreshed every other frame (2 on even, 3 on odd frames).
+		// A skipped cascade keeps its last rendered matrix/split; the PZB origin moved since,
+		// so re-base it: the stored matrix maps (world - oldCamPos), the receiver provides
+		// (world - CamPos), and (world - oldCamPos) = (world - CamPos) + (CamPos - oldCamPos).
+		bool	refresh= (c < 2) || !_SunShadowCascadeValid[c] || (((_SunShadowFrame + c) & 1) == 0);
+		if(!refresh)
+		{
+			CMatrix	rebase;
+			rebase.identity();
+			rebase.setPos(CamPos - _SunShadowCascadeCamPos[c]);
+			drv->setSunShadowCascade(c, _SunShadowCascadeMatrix[c] * rebase, _SunShadowCascadeSplit[c]);
+			continue;
+		}
+
 		// 8 corners of the frustum slice, relative to the camera position
 		CVector	corners[8];
 		for(uint k= 0; k < 2; ++k)
@@ -806,7 +839,10 @@ void		CRenderTrav::renderSunShadowCascades()
 
 		// Caster pass: depth-only re-render of the opaque list through the light camera
 		if(!drv->beginSunShadowCascade(c))
+		{
+			_SunShadowCascadeValid[c]= false;
 			break;
+		}
 		drv->setFrustum(oLeft, oRight, oBottom, oTop, oNear, oFar, false);
 		drv->setupViewMatrixEx(lightView, CamPos);
 
@@ -845,6 +881,12 @@ void		CRenderTrav::renderSunShadowCascades()
 		ortho.ortho(oLeft, oRight, oBottom, oTop, oNear, oFar);
 		CMatrix	lightViewProj= ortho * changeBasis * lightView;
 		drv->setSunShadowCascade(c, lightViewProj, d1);
+
+		// Remember what this cascade was rendered with, for the frames it is not refreshed
+		_SunShadowCascadeValid[c]= true;
+		_SunShadowCascadeMatrix[c]= lightViewProj;
+		_SunShadowCascadeCamPos[c]= CamPos;
+		_SunShadowCascadeSplit[c]= d1;
 	}
 
 	// Restore the main camera and enable receive for the main pass

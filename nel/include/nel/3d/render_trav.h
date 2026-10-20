@@ -415,6 +415,18 @@ private:
 	bool			_SunShadowCullActive;
 	NLMISC::CMatrix	_SunShadowCullLightView;	// PZB-relative world -> light space (rotation only)
 	float			_SunShadowCullBox[6];		// left, right, bottom, top, near, far (light space)
+	/* Far-cascade cadence: cascades 0 and 1 are rendered every frame, cascades >= 2 every other
+	 *	frame (2 on even frames, 3 on odd frames). A cascade that is not re-rendered keeps the
+	 *	matrix and split it was rendered with; only the PZB origin is re-based to the current
+	 *	CamPos (the stored matrix maps "world - CamPos at render time").
+	 */
+	enum			{ MaxSunShadowCascades= 4 };
+	uint			_SunShadowFrame;			// renderSunShadowCascades() call counter
+	uint			_SunShadowLastQuality;		// quality the stored cascades were rendered with
+	bool			_SunShadowCascadeValid[MaxSunShadowCascades];
+	NLMISC::CMatrix	_SunShadowCascadeMatrix[MaxSunShadowCascades];	// lightViewProj as rendered (PZB-relative)
+	CVector			_SunShadowCascadeCamPos[MaxSunShadowCascades];	// CamPos when rendered
+	float			_SunShadowCascadeSplit[MaxSunShadowCascades];	// split far as rendered
 	// @}
 
 	// A grow only list of models to be rendered.
