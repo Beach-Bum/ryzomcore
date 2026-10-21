@@ -165,6 +165,53 @@ int main(int argc, char **argv)
 	uint liPerCorner = src.TileLightInfluences.empty() ? 0
 		: (uint)(src.TileLightInfluences.size() / (((uint)src.OrderS + 1) * ((uint)src.OrderT + 1)));
 
+	// A cell holds the same number of 2 m tiles whatever the patch order, so the template's tiles
+	// can be laid out once as a grid and read back per generated patch. Copying one tile everywhere
+	// instead produced a zone PACS tessellated to nothing: the retriever came out empty at every
+	// order tried, which is what identified this as a tile problem rather than a patch-size one.
+	uint tilesPerSide = (uint)(cellSize / 2.f);
+	std::vector<CTileElement> tileGrid((size_t)tilesPerSide * tilesPerSide, src.Tiles[0]);
+	std::vector<CTileColor> colorGrid(((size_t)tilesPerSide + 1) * (tilesPerSide + 1), src.TileColors.empty() ? CTileColor() : src.TileColors[0]);
+	{
+		float tplMinX = 1e30f, tplMinY = 1e30f;
+		for (uint p = 0; p < tplInfo.Patchs.size(); ++p)
+			for (uint v = 0; v < 4; ++v)
+			{
+				tplMinX = std::min(tplMinX, tplInfo.Patchs[p].Patch.Vertices[v].x);
+				tplMinY = std::min(tplMinY, tplInfo.Patchs[p].Patch.Vertices[v].y);
+			}
+		uint placed = 0;
+		for (uint p = 0; p < tplInfo.Patchs.size(); ++p)
+		{
+			const CPatchInfo &tp = tplInfo.Patchs[p];
+			if (tp.Tiles.size() != (size_t)tp.OrderS * tp.OrderT) continue;
+			float pminx = 1e30f, pminy = 1e30f;
+			for (uint v = 0; v < 4; ++v) { pminx = std::min(pminx, tp.Patch.Vertices[v].x); pminy = std::min(pminy, tp.Patch.Vertices[v].y); }
+			sint tx0 = (sint)floorf((pminx - tplMinX) / 2.f + 0.5f);
+			sint ty0 = (sint)floorf((pminy - tplMinY) / 2.f + 0.5f);
+			bool sIsX = fabsf(tp.Patch.Vertices[3].x - tp.Patch.Vertices[0].x) > fabsf(tp.Patch.Vertices[3].y - tp.Patch.Vertices[0].y);
+			for (uint tt = 0; tt < (uint)tp.OrderT; ++tt)
+				for (uint ts = 0; ts < (uint)tp.OrderS; ++ts)
+				{
+					sint gx = tx0 + (sint)(sIsX ? ts : tt);
+					sint gy = ty0 + (sint)(sIsX ? tt : ts);
+					if (gx < 0 || gy < 0 || gx >= (sint)tilesPerSide || gy >= (sint)tilesPerSide) continue;
+					tileGrid[(size_t)gy * tilesPerSide + gx] = tp.Tiles[ts + tt * tp.OrderS];
+					++placed;
+				}
+			if (!tp.TileColors.empty())
+				for (uint tt = 0; tt <= (uint)tp.OrderT; ++tt)
+					for (uint ts = 0; ts <= (uint)tp.OrderS; ++ts)
+					{
+						sint gx = tx0 + (sint)(sIsX ? ts : tt);
+						sint gy = ty0 + (sint)(sIsX ? tt : ts);
+						if (gx < 0 || gy < 0 || gx > (sint)tilesPerSide || gy > (sint)tilesPerSide) continue;
+						colorGrid[(size_t)gy * (tilesPerSide + 1) + gx] = tp.TileColors[ts + tt * (tp.OrderS + 1)];
+					}
+		}
+		printf("template tiles: %u of %u cell tiles taken from %u patch(es)\n", placed, (uint)tileGrid.size(), (uint)tplInfo.Patchs.size());
+	}
+
 	uint16 zoneId = tplZone.getZoneId();
 	if (!zoneName.empty())
 	{
@@ -172,15 +219,23 @@ int main(int argc, char **argv)
 		sint row = 0; char col[8] = { 0 };
 		if (sscanf(zoneName.c_str(), "%d_%7s", &row, col) == 2)
 		{
+			// NeL's column is base 26 with 'A' = 0 in every position: "JR" is 9*26 + 17 = 251,
+			// which is the id 21499 that 84_JR carries. It is not the spreadsheet column rule.
 			sint c = 0;
-			for (const char *p = col; *p; ++p) c = c * 26 + (toupper(*p) - 'A' + 1);
-			c -= 1;
+			for (const char *p = col; *p; ++p) c = c * 26 + (toupper(*p) - 'A');
 			zoneId = (uint16)((row - 1) * 256 + c);
 		}
 	}
 
 	printf("template %s: patch 0 is order %ux%u, %u tiles, %u lumels/tile\n",
 		CFile::getFilename(tpl).c_str(), (uint)src.OrderS, (uint)src.OrderT, srcTiles, lumelPerTile);
+	{
+		const CBezierPatch &b0 = src.Patch;
+		CVector n = (b0.Vertices[1] - b0.Vertices[0]) ^ (b0.Vertices[3] - b0.Vertices[0]);
+		printf("template patch0 V0(%.1f,%.1f) V1(%.1f,%.1f) V3(%.1f,%.1f) normalz %.2f\n",
+			b0.Vertices[0].x, b0.Vertices[0].y, b0.Vertices[1].x, b0.Vertices[1].y,
+			b0.Vertices[3].x, b0.Vertices[3].y, n.z);
+	}
 	printf("building %u x %u patches of %.1f m (order %u) over %.1f m, zone id %u\n",
 		P, P, patchSize, order, cellSize, zoneId);
 
@@ -194,9 +249,15 @@ int main(int argc, char **argv)
 			pi.OrderT = (uint8)order;
 			pi.ErrorSize = src.ErrorSize * (patchSize * patchSize) / ((float)src.OrderS * 2.f * (float)src.OrderT * 2.f);
 
-			// one tile element repeated: the source's first tile, which is valid in this bank
-			pi.Tiles.assign((size_t)order * order, src.Tiles[0]);
-			pi.TileColors.assign(((size_t)order + 1) * (order + 1), src.TileColors.empty() ? CTileColor() : src.TileColors[0]);
+			// tiles and colours for this patch's slice of the cell's tile grid
+			pi.Tiles.resize((size_t)order * order);
+			for (uint tt = 0; tt < order; ++tt)
+				for (uint ts = 0; ts < order; ++ts)
+					pi.Tiles[ts + tt * order] = tileGrid[(size_t)(py * order + ts) * tilesPerSide + (px * order + tt)];
+			pi.TileColors.resize(((size_t)order + 1) * (order + 1));
+			for (uint tt = 0; tt <= order; ++tt)
+				for (uint ts = 0; ts <= order; ++ts)
+					pi.TileColors[ts + tt * (order + 1)] = colorGrid[(size_t)(py * order + ts) * (tilesPerSide + 1) + (px * order + tt)];
 			if (lumelPerTile) pi.Lumels.assign((size_t)order * order * lumelPerTile, 255);
 			else pi.Lumels.clear();
 			if (liPerCorner) pi.TileLightInfluences.assign(((size_t)order + 1) * (order + 1) * liPerCorner, src.TileLightInfluences[0]);
@@ -210,19 +271,22 @@ int main(int argc, char **argv)
 			// which is the Bezier form of a C1 bicubic Hermite surface.
 			CCtrl ctrl;
 			float f[2][2], fx[2][2], fy[2][2], fxy[2][2];
-			for (uint cj = 0; cj < 2; ++cj)
-				for (uint ci = 0; ci < 2; ++ci)
-					hf.sample(lx + (float)ci * patchSize, ly + (float)cj * patchSize,
-						f[ci][cj], fx[ci][cj], fy[ci][cj], fxy[ci][cj]);
+			for (uint cy = 0; cy < 2; ++cy)
+				for (uint cx = 0; cx < 2; ++cx)
+					hf.sample(lx + (float)cx * patchSize, ly + (float)cy * patchSize,
+						f[cx][cy], fx[cx][cy], fy[cx][cy], fxy[cx][cy]);
 
-			for (uint i = 0; i < 4; ++i)
-				for (uint j = 0; j < 4; ++j)
+			// The template's patches run s along +Y and t along +X, with Vertices[0] at the
+			// cell-minimum corner. Writing them the other way round makes every surface normal
+			// point down, and build_rbank then tessellates the zone to an empty retriever.
+			for (uint i = 0; i < 4; ++i)        // i is s, along +Y
+				for (uint j = 0; j < 4; ++j)    // j is t, along +X
 				{
-					uint ci = (i >= 2) ? 1 : 0, cj = (j >= 2) ? 1 : 0;   // nearest corner
-					float si = (i == 0 || i == 3) ? 0.f : ((i == 1) ? 1.f : -1.f); // +1 away from corner 0, -1 towards corner 1
-					float sj = (j == 0 || j == 3) ? 0.f : ((j == 1) ? 1.f : -1.f);
-					float z = f[ci][cj] + si * w3 * fx[ci][cj] + sj * w3 * fy[ci][cj] + si * sj * w3 * w3 * fxy[ci][cj];
-					ctrl.C[i][j].set(ox + lx + (float)i * w3, oy + ly + (float)j * w3, z);
+					uint cy = (i >= 2) ? 1 : 0, cx = (j >= 2) ? 1 : 0;   // nearest corner
+					float sy = (i == 0 || i == 3) ? 0.f : ((i == 1) ? 1.f : -1.f);
+					float sx = (j == 0 || j == 3) ? 0.f : ((j == 1) ? 1.f : -1.f);
+					float z = f[cx][cy] + sx * w3 * fx[cx][cy] + sy * w3 * fy[cx][cy] + sx * sy * w3 * w3 * fxy[cx][cy];
+					ctrl.C[i][j].set(ox + lx + (float)j * w3, oy + ly + (float)i * w3, z);
 				}
 
 			CBezierPatch &b = pi.Patch;
@@ -237,13 +301,13 @@ int main(int argc, char **argv)
 
 			// shared corner vertices, (P+1)^2 of them
 			pi.BaseVertices[0] = (uint16)(py * (P + 1) + px);
-			pi.BaseVertices[1] = (uint16)((py + 1) * (P + 1) + px);
+			pi.BaseVertices[1] = (uint16)(py * (P + 1) + px + 1);
 			pi.BaseVertices[2] = (uint16)((py + 1) * (P + 1) + px + 1);
-			pi.BaseVertices[3] = (uint16)(py * (P + 1) + px + 1);
+			pi.BaseVertices[3] = (uint16)((py + 1) * (P + 1) + px);
 
-			// edge n links vertices n and (n+1)%4: 0 = west, 1 = north, 2 = east, 3 = south
 			for (uint e = 0; e < 4; ++e) pi.BindEdges[e] = CPatchInfo::CBindInfo();
-			struct { sint dx, dy; uint theirEdge; } nb[4] = { { -1, 0, 2 }, { 0, 1, 3 }, { 1, 0, 0 }, { 0, -1, 1 } };
+			// edge n links vertices n and (n+1)%4: 0 south, 1 east, 2 north, 3 west
+			struct { sint dx, dy; uint theirEdge; } nb[4] = { { 0, -1, 2 }, { 1, 0, 3 }, { 0, 1, 0 }, { -1, 0, 1 } };
 			for (uint e = 0; e < 4; ++e)
 			{
 				sint nx = (sint)px + nb[e].dx, ny = (sint)py + nb[e].dy;
@@ -276,9 +340,9 @@ int main(int argc, char **argv)
 		for (uint ix = 0; ix < grid; ++ix)
 		{
 			float lx = (float)ix * hf.Step, ly = (float)iy * hf.Step;
-			float gs = lx / patchSize, gt = ly / patchSize;
-			uint px = std::min<uint>(P - 1, (uint)gs), py = std::min<uint>(P - 1, (uint)gt);
-			float s = gs - (float)px, t = gt - (float)py;
+			float gt = lx / patchSize, gs = ly / patchSize;   // t is x, s is y
+			uint px = std::min<uint>(P - 1, (uint)gt), py = std::min<uint>(P - 1, (uint)gs);
+			float t = gt - (float)px, s = gs - (float)py;
 			CVector v = patchs[py * P + px].Patch.eval(s, t);
 			double e = v.z - hf.at((sint)ix, (sint)iy);
 			if (fabs(e) > maxErr) maxErr = fabs(e);
