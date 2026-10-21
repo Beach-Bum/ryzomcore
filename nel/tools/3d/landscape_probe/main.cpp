@@ -13,6 +13,7 @@
 //                   [--at x,y]... [--instances] [--offset dx,dy]
 //                   [--step <metres>]
 //
+//   --points     file with one "x,y" per line (same output as --at)
 //   --at         probe a world point: terrain z (nearest tessellated sample),
 //                PACS z (mean height of the retrieved surface)
 //   --instances  for every instance of every --ig: pivot z, foundation z
@@ -211,6 +212,15 @@ int main(int argc, char **argv)
 		else if (a == "--bank" && more) bankName = argv[++i];
 		else if (a == "--shapes" && more) CPath::addSearchPath(argv[++i], false, false);
 		else if (a == "--at" && more) { float x, y; if (!parseXY(argv[++i], x, y)) { fprintf(stderr, "bad --at\n"); return 1; } points.push_back(std::make_pair(x, y)); }
+		else if (a == "--points" && more)
+		{
+			// one "x,y" per line; lets callers probe a whole grid without a huge command line
+			FILE *pf = fopen(argv[++i], "r");
+			if (!pf) { fprintf(stderr, "cannot open points file\n"); return 1; }
+			char line[256];
+			while (fgets(line, sizeof(line), pf)) { float x, y; if (parseXY(line, x, y)) points.push_back(std::make_pair(x, y)); }
+			fclose(pf);
+		}
 		else if (a == "--offset" && more) { if (!parseXY(argv[++i], offX, offY)) { fprintf(stderr, "bad --offset\n"); return 1; } }
 		else if (a == "--step" && more) step = (float)atof(argv[++i]);
 		else if (a == "--instances") listInstances = true;
