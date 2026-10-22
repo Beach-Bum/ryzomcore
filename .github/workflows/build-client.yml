@@ -1,3 +1,4 @@
+# Isolated activation proof for Beach-Bum/engine-test#46; build jobs match engine PR #1.
 name: "Ryzom Client: build on multiple platforms"
 
 on:
