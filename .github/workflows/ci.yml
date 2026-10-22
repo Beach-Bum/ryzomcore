@@ -9,13 +9,17 @@ on:
       - '!.github/workflows/ci.yml'
 
   pull_request:
-    branches: [ "core4", "feature/core4-*" ]
+    # Current fork integration route; retain upstream targets.
+    branches: [ "core4", "feature/core4-*", "work/village-height" ]
     paths-ignore:
       - '.devcontainer/**'
       - '.github/workflows/**'
       - '!.github/workflows/ci.yml'
 
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   strings:
